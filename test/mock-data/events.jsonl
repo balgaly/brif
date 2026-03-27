@@ -1,0 +1,5 @@
+{"ts":"2026-03-21T12:10:00Z","type":"prompt","text":"refactor the auth middleware to use JWT"}
+{"ts":"2026-03-21T12:10:15Z","type":"tool","name":"Read","target":"src/middleware/auth.ts"}
+{"ts":"2026-03-21T12:10:45Z","type":"tool","name":"Edit","target":"src/middleware/auth.ts"}
+{"ts":"2026-03-21T12:11:30Z","type":"tool","name":"Edit","target":"src/types/jwt.ts"}
+{"ts":"2026-03-21T12:12:00Z","type":"tool","name":"Edit","target":"src/config/auth.config.ts"}

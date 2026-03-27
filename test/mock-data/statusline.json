@@ -1,0 +1,12 @@
+{
+  "model": {"display_name": "Opus", "id": "claude-opus-4-6"},
+  "cwd": "~/dev/api-server",
+  "workspace": {"current_dir": "~/dev/api-server", "project_dir": "~/dev/api-server"},
+  "context_window": {
+    "used_percentage": 55,
+    "context_window_size": 200000,
+    "current_usage": {"input_tokens": 12000, "output_tokens": 3400, "cache_read_input_tokens": 8100}
+  },
+  "cost": {"total_cost_usd": 1.85, "total_duration_ms": 1212000, "total_lines_added": 87, "total_lines_removed": 23},
+  "session_id": "a1b2c3d4e5f6"
+}

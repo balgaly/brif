@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# brif — launcher for Claude Code with mission context top pane
+# Usage: brif [claude-code-args...]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# --- Check dependencies ---
+if ! command -v tmux &>/dev/null; then
+  echo "brif requires tmux. Install it with:"
+  echo "  macOS:  brew install tmux"
+  echo "  Ubuntu: sudo apt install tmux"
+  echo "  Arch:   sudo pacman -S tmux"
+  exit 1
+fi
+
+if ! command -v claude &>/dev/null; then
+  echo "brif requires Claude Code. See: https://docs.anthropic.com/en/docs/claude-code"
+  exit 1
+fi
+
+# --- Resolve paths ---
+BRIF_DIR="$HOME/.claude/brif"
+PANE_SCRIPT="$HOME/.claude/brif-pane.sh"
+
+if [[ ! -f "$PANE_SCRIPT" ]]; then
+  PANE_SCRIPT="$SCRIPT_DIR/brif-pane.sh"
+fi
+
+if [[ ! -f "$PANE_SCRIPT" ]]; then
+  echo "brif-pane.sh not found. Run the installer first."
+  exit 1
+fi
+
+# --- Session ID ---
+SESSION_ID="brif-$(date +%s | (shasum 2>/dev/null || md5sum) | head -c 8)"
+
+# Check if resuming
+prev_arg=""
+for arg in "$@"; do
+  if [[ "$prev_arg" == "--resume" ]]; then
+    SESSION_ID="brif-${arg:0:8}"
+  fi
+  prev_arg="$arg"
+done
+
+# --- Create session directory ---
+SESSION_DIR="$BRIF_DIR/$SESSION_ID"
+mkdir -p "$SESSION_DIR"
+
+# --- Create/update current symlink ---
+ln -sfn "$SESSION_DIR" "$BRIF_DIR/current"
+
+# --- Generate color if needed ---
+if [[ ! -f "$SESSION_DIR/mission.json" ]]; then
+  color=$(printf '#%06x' $(( $(od -An -N3 -tu4 /dev/urandom | tr -d ' ') % 16777216 )))
+  echo "{\"version\":1,\"goal\":\"\",\"progress\":[],\"remaining\":[],\"status\":\"active\",\"pending\":\"\",\"color\":\"$color\"}" \
+    > "$SESSION_DIR/mission.json"
+fi
+
+# --- Export session ID for hooks ---
+export BRIF_SESSION_ID="$SESSION_ID"
+
+# --- Launch tmux ---
+TMUX_SESSION="brif-$$"
+
+tmux new-session -d -s "$TMUX_SESSION" -x "$(tput cols)" -y "$(tput lines)"
+
+# Top pane: brif renderer (5 lines)
+tmux split-window -t "$TMUX_SESSION" -v -l 7 -b "BRIF_SESSION_ID=$SESSION_ID bash '$PANE_SCRIPT' '$SESSION_ID'"
+
+# Bottom pane: Claude Code (quote args safely)
+tmux send-keys -t "$TMUX_SESSION.1" "BRIF_SESSION_ID='$SESSION_ID' claude $(printf '%q ' "$@")" Enter
+
+# Attach — when Claude exits, the bottom pane closes and tmux auto-destroys
+# the session (set destroy-unattached). If user detaches, session stays alive.
+tmux set-option -t "$TMUX_SESSION" destroy-unattached on 2>/dev/null || true
+tmux attach-session -t "$TMUX_SESSION"

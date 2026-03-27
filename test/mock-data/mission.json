@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "goal": "Replace session-based auth with JWT token validation",
+  "progress": [
+    "auth.ts refactored",
+    "jwt.ts types added",
+    "config updated"
+  ],
+  "remaining": [
+    "token refresh endpoint",
+    "integration tests"
+  ],
+  "status": "waiting_approval",
+  "pending": "npm test",
+  "color": "#6366f1"
+}
