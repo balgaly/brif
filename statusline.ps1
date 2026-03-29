@@ -54,8 +54,25 @@ $rawInput = $input | Out-String
 $data = $rawInput | ConvertFrom-Json
 
 # --- Extract fields with safe fallbacks ---
-$model      = if ($data.model.display_name) { $data.model.display_name } else { "Unknown" }
-$modelId    = if ($data.model.id) { $data.model.id } else { "" }
+# Model name: prefer display_name, fall back to extracting from model ID
+$rawModel = ""
+if ($data.model.display_name) {
+    $rawModel = $data.model.display_name
+} elseif ($data.model.id) {
+    $rawModel = $data.model.id
+} elseif ($data.model -is [string]) {
+    $rawModel = $data.model
+} else {
+    $rawModel = "Unknown"
+}
+# Shorten long model IDs: "global.anthropic.claude-opus-4-6-v1" → "Opus 4.6"
+$model = $rawModel
+if ($model -match 'claude[- ]?(opus|sonnet|haiku)[- ]?(\d+)[- .]?(\d+)?') {
+    $mName = (Get-Culture).TextInfo.ToTitleCase($Matches[1])
+    $mVer  = if ($Matches[3]) { "$($Matches[2]).$($Matches[3])" } else { $Matches[2] }
+    $model = "$mName $mVer"
+}
+$modelId = if ($data.model.id) { $data.model.id } elseif ($data.model -is [string]) { $data.model } else { "" }
 $cwd        = if ($data.workspace.current_dir) { $data.workspace.current_dir } elseif ($data.cwd) { $data.cwd } else { "" }
 $projectDir = if ($data.workspace.project_dir) { $data.workspace.project_dir } else { "" }
 $dirname    = if ($cwd) { Split-Path $cwd -Leaf } else { "~" }
@@ -85,7 +102,7 @@ $gitModified  = 0
 $gitUntracked = 0
 
 if ($CFG_SHOW_GIT) {
-    $cacheFile   = "$env:TEMP\claude-statusline-git-cache"
+    $cacheFile   = "$env:TEMP\brif-git-cache"
     $cacheMaxAge = $CFG_CACHE_GIT_SEC
 
     $cacheStale = $true
@@ -127,7 +144,7 @@ if ($CFG_SHOW_GIT) {
 $weatherInfo = ""
 
 if ($CFG_SHOW_WEATHER) {
-    $weatherCache  = "$env:TEMP\claude-statusline-weather-cache"
+    $weatherCache  = "$env:TEMP\brif-weather-cache"
     $weatherMaxAge = $CFG_CACHE_WEATHER_SEC
 
     $weatherStale = $true
@@ -173,6 +190,8 @@ if ($CFG_SHOW_WEATHER) {
                 $moon = [char]::ConvertFromUtf32(0x1F319)  # crescent moon
                 $timeIcon = if ($hour -ge 6 -and $hour -lt 20) { $sun } else { $moon }
 
+                # Strip degree symbol — corrupts through Git Bash pipe encoding
+                $wTemp = $wTemp -replace '\u00B0', '' -replace '\u00C2', ''
                 $weatherInfo = "${flag} ${timeIcon} ${wTemp}"
             }
         }
@@ -187,55 +206,9 @@ function FmtK($n) {
 # --- Build output lines ---
 $outputLines = @()
 
-# ===== LINE 1: [Model]  path  |  #session  |  [agent] [worktree] =====
 $projDir = if ($projectDir) { $projectDir } elseif ($cwd) { $cwd } else { "~" }
 
-$line1Parts = @("${BOLD}${CYAN}[$model]${RESET}", "${DIM}${projDir}${RESET}")
-
-$rightParts = @()
-if ($CFG_SHOW_SESSION -and $sessionId) { $rightParts += "${DIM}#${sessionId}${RESET}" }
-if ($vimMode)                          { $rightParts += "${DIM}[$vimMode]${RESET}" }
-if ($agentName)                        { $rightParts += "${MAGENTA}[$agentName]${RESET}" }
-if ($worktree)                         { $rightParts += "${CYAN}[wt:$worktree]${RESET}" }
-if ($style -and $style -ne "default")  { $rightParts += "${DIM}$style${RESET}" }
-
-$line1 = ($line1Parts -join "  ")
-if ($rightParts.Count -gt 0) {
-    $line1 += "${SEP}" + ($rightParts -join "  ${PIPE}  ")
-}
-$outputLines += $line1
-
-# ===== LINE 2: git branch +staged ~modified ?untracked  |  +added -removed =====
-$line2Parts = @()
-
-if ($CFG_SHOW_GIT) {
-    if ($gitBranch) {
-        $gitSection = ""
-        if ($gitRepo) { $gitSection += "${BOLD}${gitRepo}${RESET}  " }
-        $gitSection += "${MAGENTA}$gitBranch${RESET}"
-        $indicators = @()
-        if ($gitStaged -gt 0)    { $indicators += "${GREEN}+$gitStaged${RESET}" }
-        if ($gitModified -gt 0)  { $indicators += "${YELLOW}~$gitModified${RESET}" }
-        if ($gitUntracked -gt 0) { $indicators += "${RED}?$gitUntracked${RESET}" }
-        if ($indicators.Count -gt 0) { $gitSection += "  " + ($indicators -join " ") }
-        $line2Parts += $gitSection
-    } else {
-        $line2Parts += "${DIM}no git${RESET}"
-    }
-}
-
-if ($CFG_SHOW_LINES) {
-    $line2Parts += "${GREEN}+${linesAdded}${RESET}  ${RED}-${linesRemoved}${RESET}"
-}
-
-if ($line2Parts.Count -gt 0) {
-    $outputLines += "${PREFIX}" + ($line2Parts -join $SEP)
-}
-
-# ===== LINE 3: [progress-bar]  pct%/size  |  tokens =====
-$line3Parts = @()
-
-# Progress bar (always shown — it's the core context indicator)
+# Progress bar
 if ($pct -ge 90)     { $barColor = $RED }
 elseif ($pct -ge 70) { $barColor = $YELLOW }
 else                  { $barColor = $GREEN }
@@ -243,38 +216,70 @@ else                  { $barColor = $GREEN }
 $filled = [Math]::Floor($pct * $CFG_BAR_WIDTH / 100)
 $empty  = $CFG_BAR_WIDTH - $filled
 $bar    = ("=" * $filled) + ("-" * $empty)
-
 $ctxLabel = if ($ctxSize -ge 1000000) { "1M" } else { "$([Math]::Floor($ctxSize / 1000))K" }
-$line3Parts += "${barColor}[${bar}]${RESET}  ${barColor}${pct}%${RESET}/${ctxLabel}"
+
+# Cost + duration
+$costStr = ""
+if ($CFG_SHOW_COST) {
+    $costFmt  = '$' + ("{0:N2}" -f $cost)
+    $totalSec = [Math]::Floor($durationMs / 1000)
+    $hours    = [Math]::Floor($totalSec / 3600)
+    $mins     = [Math]::Floor(($totalSec % 3600) / 60)
+    $durStr   = if ($hours -gt 0) { "${hours}h${mins}m" } else { "${mins}m" }
+    $costStr  = "${YELLOW}${costFmt}${RESET} ${DIM}${durStr}${RESET}"
+}
+
+# Git
+$gitStr = ""
+if ($CFG_SHOW_GIT -and $gitBranch) {
+    $gitStr = "${MAGENTA}$gitBranch${RESET}"
+    $indicators = @()
+    if ($gitStaged -gt 0)    { $indicators += "${GREEN}+$gitStaged${RESET}" }
+    if ($gitModified -gt 0)  { $indicators += "${YELLOW}~$gitModified${RESET}" }
+    if ($gitUntracked -gt 0) { $indicators += "${RED}?$gitUntracked${RESET}" }
+    if ($indicators.Count -gt 0) { $gitStr += " " + ($indicators -join " ") }
+}
+
+# ===== LINE 1: [Model]  branch +s ~m  [===---] 42%/200K  $0.42  2m 0s =====
+$line1Parts = @("${BOLD}${CYAN}[$model]${RESET}")
+if ($gitStr) { $line1Parts += $gitStr }
+$line1Parts += "${barColor}[${bar}]${RESET} ${barColor}${pct}%${RESET}/${ctxLabel}"
+if ($costStr) { $line1Parts += $costStr }
+
+# Right-side badges
+$badges = @()
+if ($agentName) { $badges += "${MAGENTA}[$agentName]${RESET}" }
+if ($worktree)  { $badges += "${CYAN}[wt:$worktree]${RESET}" }
+$line1 = ($line1Parts -join "  ")
+if ($badges.Count -gt 0) { $line1 += "  " + ($badges -join " ") }
+$outputLines += $line1
+
+# ===== LINE 2: tokens  |  +added -removed  |  weather  |  #session =====
+$line2Parts = @()
 
 if ($CFG_SHOW_TOKENS) {
     $curInput  = if ($null -ne $data.context_window.current_usage.input_tokens) { $data.context_window.current_usage.input_tokens } else { 0 }
     $curOutput = if ($null -ne $data.context_window.current_usage.output_tokens) { $data.context_window.current_usage.output_tokens } else { 0 }
     $curCache  = if ($null -ne $data.context_window.current_usage.cache_read_input_tokens) { $data.context_window.current_usage.cache_read_input_tokens } else { 0 }
-
     $tokParts = @("${CYAN}$(FmtK $curInput) in${RESET}", "${MAGENTA}$(FmtK $curOutput) out${RESET}")
     if ($curCache -gt 0) { $tokParts += "${GREEN}$(FmtK $curCache) hit${RESET}" }
-    $line3Parts += ($tokParts -join "  ")
+    $line2Parts += ($tokParts -join "  ")
 }
 
-$outputLines += "${PREFIX}" + ($line3Parts -join $SEP)
-
-# ===== LINE 4: $cost (rate/min)  |  duration =====
-if ($CFG_SHOW_COST) {
-    $costFmt  = '$' + ("{0:N2}" -f $cost)
-    $totalMin = $durationMs / 60000
-    $burnRate = if ($totalMin -gt 0.5) { "{0:N2}" -f ($cost / $totalMin) } else { "---" }
-
-    $totalSec = [Math]::Floor($durationMs / 1000)
-    $mins     = [Math]::Floor($totalSec / 60)
-    $secs     = $totalSec % 60
-
-    $outputLines += "${PREFIX}${YELLOW}${costFmt}${RESET}  ${DIM}(${burnRate}/min)${RESET}${SEP}${mins}m ${secs}s"
+if ($CFG_SHOW_LINES) {
+    $line2Parts += "${GREEN}+${linesAdded}${RESET} ${RED}-${linesRemoved}${RESET}"
 }
 
-# ===== LINE 5: CC moon/sun +17C (weather) =====
 if ($CFG_SHOW_WEATHER -and $weatherInfo) {
-    $outputLines += "${PREFIX}${weatherInfo}"
+    $line2Parts += $weatherInfo
+}
+
+if ($CFG_SHOW_SESSION -and $sessionId) {
+    $line2Parts += "${DIM}#${sessionId}${RESET}"
+}
+
+if ($line2Parts.Count -gt 0) {
+    $outputLines += "${DIM} .${RESET}  " + ($line2Parts -join $SEP)
 }
 
 # --- Final output ---
@@ -282,38 +287,28 @@ foreach ($line in $outputLines) {
     Write-Host $line
 }
 
-# --- Accent line (Banner B style) — rendered last so data lines show first ---
-if ($CFG_STYLE -eq "banner") {
-    $width = $Host.UI.RawUI.WindowSize.Width
-    if ($CFG_ACCENT_COLOR) {
-        # Solid color
-        $hex = $CFG_ACCENT_COLOR -replace '#',''
-        $r = [Convert]::ToInt32($hex.Substring(0,2), 16)
-        $g = [Convert]::ToInt32($hex.Substring(2,2), 16)
-        $b = [Convert]::ToInt32($hex.Substring(4,2), 16)
-        $line = [char]::ConvertFromUtf32(0x2501) * $width
-        Write-Host "$([char]27)[38;2;${r};${g};${b}m${line}$([char]27)[0m"
-    } else {
-        # Gradient: indigo -> magenta -> cyan
-        $gradient = ""
-        $half = [math]::Floor($width / 2)
-        for ($i = 0; $i -lt $width; $i++) {
-            if ($i -lt $half) {
-                $r = [math]::Round(99 + (255 - 99) * $i / $half)
-                $g = [math]::Round(102 + (68 - 102) * $i / $half)
-                $b = [math]::Round(241 + (204 - 241) * $i / $half)
-            } else {
-                $j = $i - $half
-                $half2 = $width - $half
-                $r = [math]::Round(255 + (0 - 255) * $j / $half2)
-                $g = [math]::Round(68 + (212 - 68) * $j / $half2)
-                $b = [math]::Round(204 + (255 - 204) * $j / $half2)
-            }
-            $gradient += "$([char]27)[38;2;${r};${g};${b}m$([char]::ConvertFromUtf32(0x2501))"
-        }
-        Write-Host "${gradient}$([char]27)[0m"
-    }
-}
+# --- Accent line (disabled by default — set CFG_STYLE="banner" and increase padding to enable) ---
+# Uncomment below if your terminal has enough status area height for the gradient line.
+# if ($CFG_STYLE -eq "banner") {
+#     $width = $Host.UI.RawUI.WindowSize.Width
+#     $gradient = ""
+#     $half = [math]::Floor($width / 2)
+#     for ($i = 0; $i -lt $width; $i++) {
+#         if ($i -lt $half) {
+#             $r = [math]::Round(99 + (255 - 99) * $i / $half)
+#             $g = [math]::Round(102 + (68 - 102) * $i / $half)
+#             $b = [math]::Round(241 + (204 - 241) * $i / $half)
+#         } else {
+#             $j = $i - $half
+#             $half2 = $width - $half
+#             $r = [math]::Round(255 + (0 - 255) * $j / $half2)
+#             $g = [math]::Round(68 + (212 - 68) * $j / $half2)
+#             $b = [math]::Round(204 + (255 - 204) * $j / $half2)
+#         }
+#         $gradient += "$([char]27)[38;2;${r};${g};${b}m$([char]::ConvertFromUtf32(0x2501))"
+#     }
+#     Write-Host "${gradient}$([char]27)[0m"
+# }
 
 # --- Metrics sidecar: Write brif metrics.json if session is active ---
 if ($env:BRIF_SESSION_ID) {

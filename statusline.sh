@@ -142,7 +142,7 @@ fmt_duration() {
 # ---------------------------------------------------------------------------
 # Git info (cached)
 # ---------------------------------------------------------------------------
-GIT_CACHE="/tmp/claude-statusline-git-cache"
+GIT_CACHE="/tmp/brif-git-cache"
 
 get_git_info() {
   local work_dir="$1"
@@ -190,7 +190,7 @@ get_git_info() {
 # ---------------------------------------------------------------------------
 # Weather info (cached)
 # ---------------------------------------------------------------------------
-WEATHER_CACHE="/tmp/claude-statusline-weather-cache"
+WEATHER_CACHE="/tmp/brif-weather-cache"
 
 get_weather_info() {
   # Check cache freshness
