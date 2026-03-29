@@ -13,7 +13,7 @@
 
 # ===== CONFIGURATION =====
 CFG_SHOW_GIT=true
-CFG_SHOW_WEATHER=true
+CFG_SHOW_WEATHER=false
 CFG_SHOW_TOKENS=true
 CFG_SHOW_COST=true
 CFG_SHOW_LINES=true
@@ -142,7 +142,7 @@ fmt_duration() {
 # ---------------------------------------------------------------------------
 # Git info (cached)
 # ---------------------------------------------------------------------------
-GIT_CACHE="/tmp/brif-git-cache"
+GIT_CACHE="${TMPDIR:-/tmp}/brif-git-cache-$(id -u)"
 
 get_git_info() {
   local work_dir="$1"
@@ -190,7 +190,7 @@ get_git_info() {
 # ---------------------------------------------------------------------------
 # Weather info (cached)
 # ---------------------------------------------------------------------------
-WEATHER_CACHE="/tmp/brif-weather-cache"
+WEATHER_CACHE="${TMPDIR:-/tmp}/brif-weather-cache-$(id -u)"
 
 get_weather_info() {
   # Check cache freshness
@@ -454,11 +454,11 @@ if [[ "$CFG_SHOW_COST" == true ]]; then
   cost_per_min="0"
   if (( total_duration > 0 )); then
     # Use awk for floating point math
-    cost_per_min="$(awk "BEGIN { printf \"%.2f\", ($total_cost / ($total_duration / 60000)) }" 2>/dev/null || echo "0")"
+    cost_per_min="$(awk -v c="$total_cost" -v d="$total_duration" 'BEGIN { printf "%.2f", (c / (d / 60000)) }' 2>/dev/null || echo "0")"
   fi
 
   # Format total cost
-  cost_fmt="$(awk "BEGIN { printf \"%.2f\", $total_cost }" 2>/dev/null || echo "0.00")"
+  cost_fmt="$(awk -v c="$total_cost" 'BEGIN { printf "%.2f", c }' 2>/dev/null || echo "0.00")"
 
   line4="${CFG_PREFIX}${C_GREEN}\$${cost_fmt}${C_RESET}"
   if [[ "$cost_per_min" != "0" && "$cost_per_min" != "inf" && "$cost_per_min" != "-nan" ]]; then
@@ -500,6 +500,9 @@ fi
 # METRICS SIDECAR: Write brif metrics.json if session is active
 # ---------------------------------------------------------------------------
 if [[ -n "${BRIF_SESSION_ID:-}" ]]; then
+  if [[ ! "$BRIF_SESSION_ID" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    exit 0
+  fi
   metrics_dir="$HOME/.claude/brif/$BRIF_SESSION_ID"
   if [[ -d "$metrics_dir" ]]; then
     git_dir="${work_dir:-${project_dir:-$cwd}}"

@@ -75,15 +75,23 @@ if (-not (Test-Path $MISSION_FILE)) {
 $env:BRIF_SESSION_ID = $SESSION_ID
 
 # --- Launch Windows Terminal with split panes ---
-# Quote arguments properly for Windows Terminal
-$claudeArgsStr = ($ClaudeArgs | ForEach-Object { "`"$_`"" }) -join " "
+# Build wt.exe argument list directly (no cmd.exe intermediary)
+$claudeArgsEscaped = ($ClaudeArgs | ForEach-Object { $_ -replace '[`$"\\]', '\$&' })
+$claudeArgsStr = ($claudeArgsEscaped | ForEach-Object { "`"$_`"" }) -join " "
 
-# Build wt command:
+# Build wt argument list:
 # - New tab in current window (-w _)
 # - Split pane vertically with 8% for top pane
 # - Top pane runs brif-pane.ps1
 # - Move focus down, then run claude in bottom pane
-$wtCmd = "wt.exe -w _ sp -V --size 0.08 pwsh.exe -NoProfile -File `"$PANE_SCRIPT`" `"$SESSION_ID`" `; mf down `; pwsh.exe -NoProfile -Command `"`$env:BRIF_SESSION_ID='$SESSION_ID'; claude $claudeArgsStr`""
+$wtArgs = @(
+    "-w", "_",
+    "sp", "-V", "--size", "0.08",
+    "pwsh.exe", "-NoProfile", "-File", $PANE_SCRIPT, $SESSION_ID,
+    ";", "mf", "down",
+    ";", "pwsh.exe", "-NoProfile", "-Command",
+    "`$env:BRIF_SESSION_ID='$SESSION_ID'; claude $claudeArgsStr"
+)
 
-# Execute via cmd to handle complex quoting
-Start-Process -NoNewWindow -FilePath "cmd.exe" -ArgumentList "/c", $wtCmd
+# Invoke wt.exe directly without cmd.exe
+Start-Process -NoNewWindow -FilePath "wt.exe" -ArgumentList $wtArgs

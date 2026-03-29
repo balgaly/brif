@@ -168,33 +168,9 @@ with open(settings_path, 'w') as f:
         return 0
     fi
 
-    # sed fallback: works for simple cases
-    warn "Neither jq nor python3 found. Using sed fallback (limited)."
-    if grep -q "\"$STATUSLINE_KEY\"" "$SETTINGS_FILE" 2>/dev/null; then
-        # Replace existing statusLine line (simple single-line pattern)
-        local tmp
-        tmp=$(mktemp)
-        sed '/"'"$STATUSLINE_KEY"'"/,/}/d' "$SETTINGS_FILE" > "$tmp"
-        mv "$tmp" "$SETTINGS_FILE"
-    fi
-    # Insert statusLine before the closing brace
-    local tmp
-    tmp=$(mktemp)
-    # If the file is just {}, replace it entirely
-    if [ "$(tr -d '[:space:]' < "$SETTINGS_FILE")" = "{}" ]; then
-        printf '{\n  "%s": %s\n}\n' "$STATUSLINE_KEY" "$STATUSLINE_VALUE" > "$tmp"
-    else
-        # Remove trailing newlines and closing brace, add the new key, close brace
-        sed '$ s/}$//' "$SETTINGS_FILE" | sed '/^$/d' > "$tmp"
-        # Check if we need a comma (if there are other keys)
-        if grep -q '"' "$tmp"; then
-            # Add comma after last non-empty line
-            sed -i '$ s/$/,/' "$tmp"
-        fi
-        printf '  "%s": %s\n}\n' "$STATUSLINE_KEY" "$STATUSLINE_VALUE" >> "$tmp"
-    fi
-    mv "$tmp" "$SETTINGS_FILE"
-    return 0
+    warn "Neither jq nor python3 found. Please add this to your settings.json manually:"
+    echo '  "statusLine": {"type":"command","command":"~/.claude/statusline.sh"}'
+    return 1
 }
 
 merge_settings

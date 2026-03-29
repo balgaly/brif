@@ -62,28 +62,24 @@ read_mission() {
 # Extract all mission fields in ONE jq call (avoids N+1 jq spawns)
 parse_mission() {
   local json="$1"
-  eval "$(echo "$json" | jq -r '
-    "M_GOAL=" + (.goal // "No goal set" | @sh) +
-    "\nM_STATUS=" + (.status // "active" | @sh) +
-    "\nM_PENDING=" + (.pending // "" | @sh) +
-    "\nM_COLOR=" + (.color // "#6366f1" | @sh) +
-    "\nM_DONE_COUNT=" + (.progress | length | tostring | @sh) +
-    "\nM_REM_COUNT=" + (.remaining | length | tostring | @sh) +
-    "\nM_DONE_LIST=" + ((.progress // []) | join(", ") | @sh) +
-    "\nM_REM_LIST=" + ((.remaining // []) | join(", ") | @sh)
-  ' 2>/dev/null)"
+  M_GOAL="$(echo "$json" | jq -r '.goal // "No goal set"' 2>/dev/null)"
+  M_STATUS="$(echo "$json" | jq -r '.status // "active"' 2>/dev/null)"
+  M_PENDING="$(echo "$json" | jq -r '.pending // ""' 2>/dev/null)"
+  M_COLOR="$(echo "$json" | jq -r '.color // "#6366f1"' 2>/dev/null)"
+  M_DONE_COUNT="$(echo "$json" | jq -r '.progress | length' 2>/dev/null)"
+  M_REM_COUNT="$(echo "$json" | jq -r '.remaining | length' 2>/dev/null)"
+  M_DONE_LIST="$(echo "$json" | jq -r '(.progress // []) | join(", ")' 2>/dev/null)"
+  M_REM_LIST="$(echo "$json" | jq -r '(.remaining // []) | join(", ")' 2>/dev/null)"
 }
 
 # Extract all metrics fields in ONE jq call
 parse_metrics() {
   if [[ -f "$METRICS_FILE" ]]; then
-    eval "$(jq -r '
-      "MET_CTX=" + (.context_pct // 0 | tostring | @sh) +
-      "\nMET_COST=" + (.cost_usd // 0 | tostring | @sh) +
-      "\nMET_DUR=" + (.duration_ms // 0 | tostring | @sh) +
-      "\nMET_PROJ=" + (.project_dir // "" | @sh) +
-      "\nMET_BRANCH=" + (.branch // "" | @sh)
-    ' "$METRICS_FILE" 2>/dev/null)" || true
+    MET_CTX="$(jq -r '.context_pct // 0' "$METRICS_FILE" 2>/dev/null)" || true
+    MET_COST="$(jq -r '.cost_usd // 0' "$METRICS_FILE" 2>/dev/null)" || true
+    MET_DUR="$(jq -r '.duration_ms // 0' "$METRICS_FILE" 2>/dev/null)" || true
+    MET_PROJ="$(jq -r '.project_dir // ""' "$METRICS_FILE" 2>/dev/null)" || true
+    MET_BRANCH="$(jq -r '.branch // ""' "$METRICS_FILE" 2>/dev/null)" || true
   fi
   # Defaults
   MET_CTX="${MET_CTX:-0}"

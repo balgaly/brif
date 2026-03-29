@@ -10,7 +10,7 @@
 
 # ===== CONFIGURATION =====
 $CFG_SHOW_GIT          = $true
-$CFG_SHOW_WEATHER      = $true
+$CFG_SHOW_WEATHER      = $false
 $CFG_SHOW_TOKENS       = $true
 $CFG_SHOW_COST         = $true
 $CFG_SHOW_LINES        = $true
@@ -312,6 +312,7 @@ foreach ($line in $outputLines) {
 
 # --- Metrics sidecar: Write brif metrics.json if session is active ---
 if ($env:BRIF_SESSION_ID) {
+    if ($env:BRIF_SESSION_ID -notmatch '^[a-zA-Z0-9._-]+$') { exit }
     $metricsDir = "$env:USERPROFILE\.claude\brif\$env:BRIF_SESSION_ID"
     if (Test-Path $metricsDir) {
         $gitDir = if ($cwd) { $cwd } elseif ($projectDir) { $projectDir } else { "." }

@@ -7,6 +7,10 @@ if [[ -z "$session_id" ]]; then
   session_id="auto-$(echo "$$-$PPID" | md5sum 2>/dev/null | cut -c1-12 || echo "$PPID")"
 fi
 
+if [[ ! "$session_id" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+    exit 0
+fi
+
 session_dir="$HOME/.claude/brif/$session_id"
 mkdir -p "$session_dir"
 

@@ -10,6 +10,8 @@ if (-not $sessionId) {
     $sessionId = "auto-$pid-$ppid"
 }
 
+if ($sessionId -notmatch '^[a-zA-Z0-9._-]+$') { exit }
+
 $sessionDir = Join-Path $HOME ".claude\brif\$sessionId"
 if (-not (Test-Path $sessionDir)) {
     New-Item -ItemType Directory -Path $sessionDir -Force | Out-Null
