@@ -282,6 +282,42 @@ if ($line2Parts.Count -gt 0) {
     $outputLines += "${DIM} .${RESET}  " + ($line2Parts -join $SEP)
 }
 
+# ===== LINE 3: brif mission line (only when BRIF_SESSION_ID is set + mission.json exists) =====
+if ($env:BRIF_SESSION_ID -and $env:BRIF_SESSION_ID -match '^[a-zA-Z0-9._-]+$') {
+    $missionFile = "$env:USERPROFILE\.claude\brif\$($env:BRIF_SESSION_ID)\mission.json"
+    if (Test-Path $missionFile) {
+        try {
+            $m = Get-Content $missionFile -Raw -Encoding utf8 | ConvertFrom-Json
+            $goal    = $(if ($m.goal)     { $m.goal }     else { "" })
+            $mDone   = $(if ($null -ne $m.progress) { @($m.progress).Count } else { 0 })
+            $mRem    = $(if ($null -ne $m.remaining) { @($m.remaining).Count } else { 0 })
+            $mTotal  = $mDone + $mRem
+            $mStatus = $(if ($m.status)   { $m.status }   else { "active" })
+            $pending = $(if ($m.pending)  { $m.pending }  else { "" })
+
+            if ($goal) {
+                # Progress bar
+                $mFilled = $(if ($mTotal -gt 0) { [Math]::Floor($mDone * 10 / $mTotal) } else { 0 })
+                $mBar    = ("=" * $mFilled) + ("-" * (10 - $mFilled))
+
+                # Status badge
+                $statusBadge = switch ($mStatus) {
+                    "waiting_approval" { "${YELLOW}APPROVE${RESET}" }
+                    "blocked"          { "${RED}BLOCKED${RESET}" }
+                    "idle"             { "${DIM}IDLE${RESET}" }
+                    default            { "" }
+                }
+
+                $mLine = "${DIM} |${RESET} ${goal}"
+                if ($mTotal -gt 0) { $mLine += "  ${DIM}[${mBar}]${RESET} ${DIM}${mDone}/${mTotal}${RESET}" }
+                if ($statusBadge)  { $mLine += "  ${statusBadge}" }
+                if ($pending -and $mStatus -eq "waiting_approval") { $mLine += "  ${DIM}${pending}${RESET}" }
+                $outputLines += $mLine
+            }
+        } catch { <# silently skip on bad json #> }
+    }
+}
+
 # --- Final output ---
 foreach ($line in $outputLines) {
     Write-Host $line
@@ -313,7 +349,7 @@ foreach ($line in $outputLines) {
 # --- Metrics sidecar: Write brif metrics.json if session is active ---
 if ($env:BRIF_SESSION_ID) {
     if ($env:BRIF_SESSION_ID -notmatch '^[a-zA-Z0-9._-]+$') { exit }
-    $metricsDir = "$env:USERPROFILE\.claude\brif\$env:BRIF_SESSION_ID"
+    $metricsDir = "$env:USERPROFILE\.claude\brif\$($env:BRIF_SESSION_ID)"
     if (Test-Path $metricsDir) {
         $gitDir = if ($cwd) { $cwd } elseif ($projectDir) { $projectDir } else { "." }
         $currentBranch = ""

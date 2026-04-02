@@ -6,7 +6,8 @@ Thumbs.db
 
 # Dev artifacts
 .a5c/
-.claude/
+.claude/*
+!.claude/settings.json
 .playwright-mcp/
 mockup*.html
 mockup*.png

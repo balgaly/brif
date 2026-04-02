@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -File C:/Users/sbalgaly/.claude/hooks/post-tool-use.ps1"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoProfile -File C:/Users/sbalgaly/.claude/hooks/user-prompt.ps1"
+          }
+        ]
+      }
+    ]
+  }
+}
