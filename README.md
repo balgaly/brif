@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/statusline-dark.png" alt="brif statusline concepts" width="720" />
+  <img src="assets/statusline-hero.png" alt="brif statusline" width="720" />
 </p>
 
 ---
@@ -22,15 +22,13 @@
 
 ### Statusline
 
-An always-on metrics bar at the bottom of your terminal. Updated after every assistant response.
+A compact 2-line metrics bar at the bottom of your terminal. Updated after every assistant response.
 
 | Line | Content |
 |------|---------|
-| **Model** | Active model name, project path, session ID, agent/worktree badges |
-| **Git** | Branch, staged/modified/untracked counts, lines changed |
-| **Context** | Progress bar (color-coded) + token breakdown (input / output / cache) |
-| **Cost** | Session cost, burn rate, wall-clock duration |
-| **Weather** | Country code, conditions, temperature |
+| **Line 1** | Model name, git branch + changes, context progress bar, cost, duration |
+| **Line 2** | Token breakdown (in/out/cache), lines added/removed, session ID |
+| **Mission** | Current goal + task progress (when brif session is active) |
 
 The context progress bar shifts color as usage climbs:
 
@@ -38,14 +36,14 @@ The context progress bar shifts color as usage climbs:
 - **Yellow** — 70-89%
 - **Red** — 90%+ (compaction approaching)
 
-A rainbow gradient accent line runs beneath the statusline. Every section is independently toggleable.
+Every section is independently toggleable.
 
 ### brif pane
 
 An optional tmux-based top pane that shows mission context: current goal, task progress, and blocking status.
 
 <p align="center">
-  <img src="assets/brif-pane-dark.png" alt="brif pane" width="720" />
+  <img src="assets/brif-pane-hero.png" alt="brif pane" width="720" />
 </p>
 
 The pane operates in two modes:
@@ -56,8 +54,8 @@ The pane operates in two modes:
 It auto-collapses to ambient mode after 10 seconds and re-expands when approval is needed or after extended inactivity.
 
 ```
-▎ BRIF  api-server/main ctx:55% $1.85
-▎ Goal: Add JWT auth to /api/users [====------] 3/5 APPROVE npm test
+| BRIF  api-server/main ctx:55% $1.85
+| Goal: Add JWT auth to /api/users [====------] 3/5 APPROVE npm test
 ```
 
 ---
@@ -118,18 +116,11 @@ Edit the `CONFIGURATION` block at the top of the statusline script. No external 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `CFG_SHOW_GIT` | `true` | Git branch + staged/modified/untracked counts |
-| `CFG_SHOW_WEATHER` | `true` | Country code + weather + temperature |
+| `CFG_SHOW_WEATHER` | `false` | Country code + weather + temperature |
 | `CFG_SHOW_TOKENS` | `true` | Input/output/cache token counts |
 | `CFG_SHOW_COST` | `true` | Session cost + burn rate + duration |
 | `CFG_SHOW_LINES` | `true` | Lines added/removed in session |
 | `CFG_SHOW_SESSION` | `true` | Session ID (first 8 chars) |
-
-### Style
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `CFG_STYLE` | `"banner"` | `"banner"` (gradient accent line) or `"classic"` (no accent) |
-| `CFG_ACCENT_COLOR` | `""` | Hex color for solid accent line. Empty = rainbow gradient. |
 
 ### Settings
 
@@ -144,7 +135,7 @@ Edit the `CONFIGURATION` block at the top of the statusline script. No external 
 
 ### Minimal mode
 
-Disable everything except context for a clean two-line output:
+Disable everything except context for a single-line output:
 
 ```bash
 CFG_SHOW_GIT=false
@@ -158,8 +149,7 @@ CFG_SHOW_SESSION=false
 Result:
 
 ```
-[Opus]  ~/my-project
- .  [======---------]  42%/200K
+[Opus 4.6]  [======---------] 42%/200K
 ```
 
 ---
@@ -200,7 +190,7 @@ Edit the top of `brif-pane.sh`:
 
 ## How it works
 
-The statusline integrates with Claude Code's `statusLine` command interface. After each assistant message, session data is piped as JSON to stdin. The script parses it, extracts model info, context usage, cost, and git state, then prints formatted ANSI text to stdout for display at the bottom of the terminal.
+The statusline integrates with the `statusLine` command interface. After each assistant message, session data is piped as JSON to stdin. The script parses it, extracts model info, context usage, cost, and git state, then prints formatted ANSI text to stdout for display at the bottom of the terminal.
 
 **Performance:**
 

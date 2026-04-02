@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>brif pane mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d1117;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 40px 20px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  .terminal-window {
+    width: 740px;
+    background: #1a1b26;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.06),
+      0 8px 40px rgba(0,0,0,0.55),
+      0 2px 12px rgba(0,0,0,0.3);
+  }
+
+  .title-bar {
+    background: linear-gradient(180deg, #2a2b3d 0%, #24253a 100%);
+    height: 40px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    position: relative;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+
+  .traffic-lights {
+    display: flex;
+    gap: 8px;
+  }
+
+  .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+
+  .dot.red { background: #ff5f57; box-shadow: inset 0 -1px 1px rgba(0,0,0,0.15); }
+  .dot.yellow { background: #febc2e; box-shadow: inset 0 -1px 1px rgba(0,0,0,0.15); }
+  .dot.green { background: #28c840; box-shadow: inset 0 -1px 1px rgba(0,0,0,0.15); }
+
+  .title-text {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,0.45);
+    font-size: 13px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+
+  .terminal-content {
+    font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.65;
+    color: #c0caf5;
+  }
+
+  /* === Top Pane: brif dashboard === */
+  .brif-pane {
+    padding: 12px 14px 12px 0;
+    border-left: 3px solid #a78bfa;
+    margin-left: 0;
+    background: linear-gradient(90deg, rgba(167,139,250,0.04) 0%, transparent 40%);
+  }
+
+  .brif-pane .line {
+    white-space: pre;
+    display: block;
+    padding-left: 16px;
+  }
+
+  /* === Tmux divider === */
+  .tmux-divider {
+    height: 1px;
+    background: #3b3d57;
+    position: relative;
+  }
+
+  /* === Bottom Pane: session === */
+  .session-pane {
+    padding: 14px 20px 18px 20px;
+  }
+
+  .session-pane .line {
+    white-space: pre;
+    display: block;
+  }
+
+  .session-pane .blank {
+    height: 8px;
+    display: block;
+  }
+
+  /* Color classes — Tokyo Night */
+  .purple { color: #a78bfa; }
+  .purple-bold { color: #a78bfa; font-weight: 700; }
+  .cyan { color: #7dcfff; }
+  .cyan-bold { color: #7dcfff; font-weight: 700; }
+  .dim { color: #565f89; }
+  .bold-white { color: #e0e4f0; font-weight: 700; }
+  .white { color: #c0caf5; }
+  .magenta { color: #bb9af7; }
+  .green { color: #9ece6a; }
+  .green-bold { color: #9ece6a; font-weight: 700; }
+  .green-dim { color: #5a7a3a; }
+  .yellow { color: #e0af68; }
+  .red { color: #f7768e; }
+  .orange-bold { color: #ff9e64; font-weight: 700; }
+  .default { color: #c0caf5; }
+  .blue { color: #7aa2f7; }
+
+  .badge-approve {
+    color: #f7768e;
+    font-weight: 700;
+    background: rgba(247,118,142,0.12);
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid rgba(247,118,142,0.25);
+  }
+
+  .prompt-char { color: #9ece6a; font-weight: 700; }
+  .file-path { color: #7aa2f7; }
+  .bullet { color: #9ece6a; }
+  .check { color: #9ece6a; }
+  .test-time { color: #565f89; }
+
+  .caption {
+    color: rgba(255,255,255,0.30);
+    font-size: 13px;
+    margin-top: 20px;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+</style>
+</head>
+<body>
+
+<div class="terminal-window" id="terminal">
+  <div class="title-bar">
+    <div class="traffic-lights">
+      <div class="dot red"></div>
+      <div class="dot yellow"></div>
+      <div class="dot green"></div>
+    </div>
+    <div class="title-text">brif &mdash; tmux session</div>
+  </div>
+
+  <div class="terminal-content">
+    <!-- Top pane: brif dashboard -->
+    <div class="brif-pane">
+      <span class="line"><span class="purple-bold">BRIF</span>  <span class="bold-white">api-server</span><span class="dim">/</span><span class="magenta">main</span>  <span class="yellow">ctx:55%</span>  <span class="green">$1.85</span></span>
+      <span class="line"><span class="dim">Goal:</span> <span class="white">Add JWT auth to /api/users</span>  <span class="green-bold">[====</span><span class="dim">------]</span> <span class="bold-white">3/5</span>  <span class="badge-approve">APPROVE</span> <span class="yellow">npm test</span></span>
+    </div>
+
+    <!-- Tmux divider -->
+    <div class="tmux-divider"></div>
+
+    <!-- Bottom pane: AI session -->
+    <div class="session-pane">
+      <span class="line"><span class="prompt-char">&gt;</span> <span class="bold-white">refactor the auth middleware to use JWT validation</span></span>
+      <span class="blank"></span>
+      <span class="line"><span class="default">I'll refactor the auth middleware. Let me read the current</span></span>
+      <span class="line"><span class="default">implementation...</span></span>
+      <span class="blank"></span>
+      <span class="line"><span class="file-path">src/middleware/auth.ts</span></span>
+      <span class="line"><span class="dim">  </span><span class="bullet">&#9679;</span> <span class="white">Edit</span> <span class="dim">&#8212; replaced basic auth with JWT verify</span></span>
+      <span class="line"><span class="dim">  </span><span class="bullet">&#9679;</span> <span class="white">Edit</span> <span class="dim">&#8212; added token expiry check</span></span>
+      <span class="blank"></span>
+      <span class="line"><span class="file-path">src/routes/users.ts</span></span>
+      <span class="line"><span class="dim">  </span><span class="bullet">&#9679;</span> <span class="white">Edit</span> <span class="dim">&#8212; updated route to pass JWT claims</span></span>
+      <span class="blank"></span>
+      <span class="line"><span class="dim">Running npm test...</span></span>
+      <span class="line"><span class="dim">  </span><span class="check">&#10003;</span> <span class="white">auth middleware validates JWT tokens</span> <span class="test-time">(12ms)</span></span>
+      <span class="line"><span class="dim">  </span><span class="check">&#10003;</span> <span class="white">expired tokens are rejected</span> <span class="test-time">(8ms)</span></span>
+      <span class="line"><span class="dim">  </span><span class="check">&#10003;</span> <span class="white">user routes receive claims</span> <span class="test-time">(15ms)</span></span>
+      <span class="blank"></span>
+      <span class="line"><span class="default">All tests passing. The auth middleware now uses JWT validation.</span></span>
+    </div>
+  </div>
+</div>
+
+<div class="caption">brif pane &mdash; mission context dashboard running above your session</div>
+
+</body>
+</html>

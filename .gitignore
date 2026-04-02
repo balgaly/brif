@@ -9,6 +9,6 @@ Thumbs.db
 .claude/*
 !.claude/settings.json
 .playwright-mcp/
-mockup*.html
-mockup*.png
+/mockup*.html
+/mockup*.png
 docs/superpowers/
