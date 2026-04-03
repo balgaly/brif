@@ -17,6 +17,13 @@ if (-not (Test-Path $sessionDir)) {
     New-Item -ItemType Directory -Path $sessionDir -Force | Out-Null
 }
 
+# Always ensure 'current' dir exists so the AI can write mission.json there
+# in plain 'claude' sessions (without BRIF_SESSION_ID set)
+$currentDir = Join-Path $HOME ".claude\brif\current"
+if (-not (Test-Path $currentDir)) {
+    New-Item -ItemType Directory -Path $currentDir -Force | Out-Null
+}
+
 $inputJson = $input | Out-String
 if (-not $inputJson -or $inputJson.Trim() -eq '') { exit 0 }
 

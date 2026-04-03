@@ -18,6 +18,8 @@
   <img src="assets/statusline-hero.png" alt="brif statusline" width="720" />
 </p>
 
+> The third line (mission goal + progress bar) appears when you add the [CLAUDE.md snippet](#brif-pane) to your project.
+
 ---
 
 ## Features
@@ -30,7 +32,7 @@ A compact 2-line metrics bar at the bottom of your terminal. Updated after every
 |------|---------|
 | **Line 1** | Model name, git branch + changes, context progress bar, cost, duration |
 | **Line 2** | Token breakdown (in/out/cache), lines added/removed, session ID |
-| **Mission** | Current goal + task progress (when brif session is active) |
+| **Mission** | Current goal + task progress (requires [CLAUDE.md snippet](#brif-pane)) |
 
 The context progress bar shifts color as usage climbs:
 

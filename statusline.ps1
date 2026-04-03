@@ -282,11 +282,19 @@ if ($line2Parts.Count -gt 0) {
     $outputLines += "${DIM} .${RESET}  " + ($line2Parts -join $SEP)
 }
 
-# ===== LINE 3: brif mission line (only when BRIF_SESSION_ID is set + mission.json exists) =====
+# ===== LINE 3: brif mission line =====
+# Prefer BRIF_SESSION_ID-specific dir; fall back to 'current' for plain 'claude' sessions
+$missionFile = $null
 if ($env:BRIF_SESSION_ID -and $env:BRIF_SESSION_ID -match '^[a-zA-Z0-9._-]+$') {
-    $missionFile = "$env:USERPROFILE\.claude\brif\$($env:BRIF_SESSION_ID)\mission.json"
-    if (Test-Path $missionFile) {
-        try {
+    $candidate = "$env:USERPROFILE\.claude\brif\$($env:BRIF_SESSION_ID)\mission.json"
+    if (Test-Path $candidate) { $missionFile = $candidate }
+}
+if (-not $missionFile) {
+    $candidate = "$env:USERPROFILE\.claude\brif\current\mission.json"
+    if (Test-Path $candidate) { $missionFile = $candidate }
+}
+if ($missionFile) {
+    try {
             $m = Get-Content $missionFile -Raw -Encoding utf8 | ConvertFrom-Json
             $goal    = $(if ($m.goal)     { $m.goal }     else { "" })
             $mDone   = $(if ($null -ne $m.progress) { @($m.progress).Count } else { 0 })
@@ -314,8 +322,7 @@ if ($env:BRIF_SESSION_ID -and $env:BRIF_SESSION_ID -match '^[a-zA-Z0-9._-]+$') {
                 if ($pending -and $mStatus -eq "waiting_approval") { $mLine += "  ${DIM}${pending}${RESET}" }
                 $outputLines += $mLine
             }
-        } catch { <# silently skip on bad json #> }
-    }
+    } catch { <# silently skip on bad json #> }
 }
 
 # --- Final output ---
