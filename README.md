@@ -6,6 +6,8 @@
     See your goal, context usage, git status, cost, and more — at a glance.
   </p>
   <p align="center">
+    <a href="https://github.com/balgaly/brif/releases/latest"><img src="https://img.shields.io/github/v/release/balgaly/brif?color=blue" alt="Latest Release" /></a>
+    <a href="https://github.com/balgaly/brif/actions/workflows/test.yml"><img src="https://github.com/balgaly/brif/actions/workflows/test.yml/badge.svg" alt="Tests" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
     <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-informational" alt="Platforms" />
     <img src="https://img.shields.io/badge/shell-Bash%20%7C%20PowerShell-yellow" alt="Shell" />

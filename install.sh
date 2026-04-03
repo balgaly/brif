@@ -27,7 +27,7 @@ warn()    { printf "${YELLOW}%s${NC}\n" "$1"; }
 info()    { printf "${CYAN}%s${NC}\n" "$1"; }
 
 # --- Configuration ---
-REPO_BASE="https://raw.githubusercontent.com/balgaly/brif/main"
+REPO_BASE="https://github.com/balgaly/brif/releases/latest/download"
 CLAUDE_DIR="$HOME/.claude"
 BRIF_DIR="$CLAUDE_DIR/brif"
 BRIF_HOOKS_DIR="$CLAUDE_DIR/brif-hooks"

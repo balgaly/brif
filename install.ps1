@@ -20,7 +20,7 @@ function Write-Warn    { param([string]$Message) Write-Host $Message -Foreground
 function Write-Info     { param([string]$Message) Write-Host $Message -ForegroundColor Cyan }
 
 # --- Configuration ---
-$RepoBase     = "https://raw.githubusercontent.com/balgaly/brif/main"
+$RepoBase     = "https://github.com/balgaly/brif/releases/latest/download"
 $ClaudeDir    = Join-Path $HOME ".claude"
 $BrifDir      = Join-Path $ClaudeDir "brif"
 $BrifHooksDir = Join-Path $ClaudeDir "brif-hooks"
