@@ -4,10 +4,23 @@
 $ErrorActionPreference = 'Stop'
 
 $sessionId = $env:BRIF_SESSION_ID
+
+# Try to get the actual Claude session ID from hook input JSON
+$inputJson = $input | Out-String
+$inputObj  = $null
+if ($inputJson -and $inputJson.Trim() -ne '') {
+    try { $inputObj = $inputJson | ConvertFrom-Json } catch {}
+}
+$claudeSessionId = if ($inputObj -and $inputObj.session_id) { $inputObj.session_id } else { $null }
+
 if (-not $sessionId) {
-    $pid = [System.Diagnostics.Process]::GetCurrentProcess().Id
-    $ppid = (Get-CimInstance Win32_Process -Filter "ProcessId = $pid").ParentProcessId
-    $sessionId = "auto-$pid-$ppid"
+    if ($claudeSessionId -and $claudeSessionId -match '^[a-zA-Z0-9._-]+$') {
+        $sessionId = $claudeSessionId
+    } else {
+        $pid  = [System.Diagnostics.Process]::GetCurrentProcess().Id
+        $ppid = (Get-CimInstance Win32_Process -Filter "ProcessId = $pid").ParentProcessId
+        $sessionId = "auto-$pid-$ppid"
+    }
 }
 
 if ($sessionId -notmatch '^[a-zA-Z0-9._-]+$') { exit }
@@ -17,21 +30,15 @@ if (-not (Test-Path $sessionDir)) {
     New-Item -ItemType Directory -Path $sessionDir -Force | Out-Null
 }
 
-# Always ensure 'current' dir exists so the AI can write mission.json there
-# in plain 'claude' sessions (without BRIF_SESSION_ID set)
+# Ensure 'current' dir exists and stamp it with this session's ID
+# so the statusline knows which session owns current/mission.json
 $currentDir = Join-Path $HOME ".claude\brif\current"
 if (-not (Test-Path $currentDir)) {
     New-Item -ItemType Directory -Path $currentDir -Force | Out-Null
 }
+$sessionId | Out-File -FilePath (Join-Path $currentDir ".session_id") -Encoding utf8 -NoNewline -Force
 
-$inputJson = $input | Out-String
-if (-not $inputJson -or $inputJson.Trim() -eq '') { exit 0 }
-
-try {
-    $inputObj = $inputJson | ConvertFrom-Json
-} catch {
-    exit 0
-}
+if (-not $inputObj) { exit 0 }
 
 $promptText = if ($inputObj.prompt) { $inputObj.prompt } else { "" }
 

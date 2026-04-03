@@ -291,7 +291,15 @@ if ($env:BRIF_SESSION_ID -and $env:BRIF_SESSION_ID -match '^[a-zA-Z0-9._-]+$') {
 }
 if (-not $missionFile) {
     $candidate = "$env:USERPROFILE\.claude\brif\current\mission.json"
-    if (Test-Path $candidate) { $missionFile = $candidate }
+    if (Test-Path $candidate) {
+        # Only use current/ if it belongs to this session
+        $sessionIdFile = "$env:USERPROFILE\.claude\brif\current\.session_id"
+        $currentOwner  = if (Test-Path $sessionIdFile) { (Get-Content $sessionIdFile -Raw).Trim() } else { "" }
+        $mySessionId   = if ($data.session_id) { $data.session_id } else { "" }
+        if (-not $currentOwner -or -not $mySessionId -or $currentOwner -eq $mySessionId) {
+            $missionFile = $candidate
+        }
+    }
 }
 if ($missionFile) {
     try {
