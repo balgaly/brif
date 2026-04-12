@@ -40,7 +40,9 @@ SESSION_ID="brif-$(date +%s | (shasum 2>/dev/null || md5sum) | head -c 8)"
 prev_arg=""
 for arg in "$@"; do
   if [[ "$prev_arg" == "--resume" ]]; then
-    SESSION_ID="brif-${arg:0:8}"
+    # Sanitize: strip any character outside the allowed set before truncating
+    clean_arg="${arg//[^a-zA-Z0-9._-]/}"
+    SESSION_ID="brif-${clean_arg:0:8}"
   fi
   prev_arg="$arg"
 done
@@ -55,8 +57,9 @@ ln -sfn "$SESSION_DIR" "$BRIF_DIR/current"
 # --- Generate color if needed ---
 if [[ ! -f "$SESSION_DIR/mission.json" ]]; then
   color=$(printf '#%06x' $(( $(od -An -N3 -tu4 /dev/urandom | tr -d ' ') % 16777216 )))
-  echo "{\"version\":1,\"goal\":\"\",\"progress\":[],\"remaining\":[],\"status\":\"active\",\"pending\":\"\",\"color\":\"$color\"}" \
-    > "$SESSION_DIR/mission.json"
+  printf '{"version":1,"goal":"","progress":[],"remaining":[],"status":"active","pending":"","color":"%s"}\n' "$color" \
+    > "$SESSION_DIR/mission.json.tmp"
+  mv "$SESSION_DIR/mission.json.tmp" "$SESSION_DIR/mission.json"
 fi
 
 # --- Export session ID for hooks ---
@@ -68,10 +71,12 @@ TMUX_SESSION="brif-$$"
 tmux new-session -d -s "$TMUX_SESSION" -x "$(tput cols)" -y "$(tput lines)"
 
 # Top pane: brif renderer (5 lines)
-tmux split-window -t "$TMUX_SESSION" -v -l 7 -b "BRIF_SESSION_ID=$SESSION_ID bash '$PANE_SCRIPT' '$SESSION_ID'"
+# Pass SESSION_ID via tmux set-environment to avoid shell-quoting injection
+tmux set-environment -t "$TMUX_SESSION" BRIF_SESSION_ID "$SESSION_ID"
+tmux split-window -t "$TMUX_SESSION" -v -l 7 -b "bash '$PANE_SCRIPT' '$SESSION_ID'"
 
-# Bottom pane: Claude Code (quote args safely)
-tmux send-keys -t "$TMUX_SESSION.1" "BRIF_SESSION_ID='$SESSION_ID' claude $(printf '%q ' "$@")" Enter
+# Bottom pane: Claude Code (quote args safely; SESSION_ID already in tmux env)
+tmux send-keys -t "$TMUX_SESSION.1" "claude $(printf '%q ' "$@")" Enter
 
 # Attach — when Claude exits, the bottom pane closes and tmux auto-destroys
 # the session (set destroy-unattached). If user detaches, session stays alive.

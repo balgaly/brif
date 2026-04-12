@@ -15,6 +15,10 @@ DIM="${ESC}[2m"
 
 # --- File paths ---
 SESSION_ID="${1:-}"
+if [[ -n "$SESSION_ID" && ! "$SESSION_ID" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+  echo "brif-pane: invalid session ID" >&2
+  exit 1
+fi
 MISSION_FILE="${BRIF_MISSION_FILE:-$HOME/.claude/brif/$SESSION_ID/mission.json}"
 METRICS_FILE="${BRIF_METRICS_FILE:-$HOME/.claude/brif/$SESSION_ID/metrics.json}"
 EVENTS_FILE="${BRIF_EVENTS_FILE:-$HOME/.claude/brif/$SESSION_ID/events.jsonl}"

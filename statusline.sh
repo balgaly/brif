@@ -213,7 +213,7 @@ get_weather_info() {
 
   # Fetch country code from ip-api.com
   local country
-  country="$(curl -s --max-time 3 'http://ip-api.com/json/?fields=countryCode' 2>/dev/null | jq -r '.countryCode // ""' 2>/dev/null)"
+  country="$(curl -s --max-time 3 'https://ip-api.com/json/?fields=countryCode' 2>/dev/null | jq -r '.countryCode // ""' 2>/dev/null)"
   [[ -z "$country" || "$country" == "null" ]] && country="??"
 
   # Fetch weather from wttr.in
