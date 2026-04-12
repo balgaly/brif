@@ -13,6 +13,7 @@ fi
 
 session_dir="$HOME/.claude/brif/$session_id"
 mkdir -p "$session_dir"
+chmod 700 "$session_dir"
 
 input_json="$(cat)"
 

@@ -22,6 +22,10 @@ $DIM = "${ESC}[2m"
 
 # --- File paths ---
 if (-not $SessionId) { $SessionId = $args[0] }
+if ($SessionId -and $SessionId -notmatch '^[a-zA-Z0-9._-]+$') {
+    Write-Error "brif-pane: invalid session ID"
+    exit 1
+}
 $MISSION_FILE = if ($env:BRIF_MISSION_FILE) { $env:BRIF_MISSION_FILE } else { Join-Path $HOME ".claude\brif\$SessionId\mission.json" }
 $METRICS_FILE = if ($env:BRIF_METRICS_FILE) { $env:BRIF_METRICS_FILE } else { Join-Path $HOME ".claude\brif\$SessionId\metrics.json" }
 $EVENTS_FILE = if ($env:BRIF_EVENTS_FILE) { $env:BRIF_EVENTS_FILE } else { Join-Path $HOME ".claude\brif\$SessionId\events.jsonl" }

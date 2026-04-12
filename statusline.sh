@@ -31,14 +31,14 @@ CFG_STYLE="banner"         # "banner" (v2) or "classic" (v1 look)
 # ---------------------------------------------------------------------------
 # ANSI color codes
 # ---------------------------------------------------------------------------
-C_RESET='\033[0m'
-C_BOLD='\033[1m'
-C_CYAN='\033[36m'
-C_MAGENTA='\033[35m'
-C_GREEN='\033[32m'
-C_YELLOW='\033[33m'
-C_RED='\033[31m'
-C_DIM='\033[2m'
+C_RESET=$'\033[0m'
+C_BOLD=$'\033[1m'
+C_CYAN=$'\033[36m'
+C_MAGENTA=$'\033[35m'
+C_GREEN=$'\033[32m'
+C_YELLOW=$'\033[33m'
+C_RED=$'\033[31m'
+C_DIM=$'\033[2m'
 
 # ---------------------------------------------------------------------------
 # Read JSON from stdin
@@ -317,9 +317,9 @@ if [[ "${CFG_STYLE:-banner}" == "banner" ]]; then
         frac_g=$(( g2 + (g3 - g2) * j / half2 ))
         frac_b=$(( b2 + (b3 - b2) * j / half2 ))
       fi
-      accent_line+="\033[38;2;${frac_r};${frac_g};${frac_b}m━"
+      accent_line+=$'\033'"[38;2;${frac_r};${frac_g};${frac_b}m━"
     done
-    printf '%b\033[0m\n' "$accent_line"
+    printf '%s\n' "${accent_line}${C_RESET}"
   fi
 fi
 
@@ -359,7 +359,7 @@ if [[ -n "$worktree_name" ]]; then
   line1+=" ${C_MAGENTA}[${worktree_name}]${C_RESET}"
 fi
 
-printf '%b\n' "$line1"
+printf '%s\n' "$line1"
 
 # ---------------------------------------------------------------------------
 # LINE 2: Git branch + stats | Lines added/removed
@@ -401,7 +401,7 @@ if [[ "$CFG_SHOW_GIT" == true ]]; then
       fi
     fi
 
-    printf '%b\n' "$line2"
+    printf '%s\n' "$line2"
   fi
 fi
 
@@ -441,7 +441,7 @@ if [[ "$CFG_SHOW_TOKENS" == true ]]; then
   line3+="  ${used_pct_int}%/${window_fmt}"
   line3+="${CFG_SEPARATOR}${input_fmt} in  ${output_fmt} out  ${cache_fmt} hit"
 
-  printf '%b\n' "$line3"
+  printf '%s\n' "$line3"
 fi
 
 # ---------------------------------------------------------------------------
@@ -466,7 +466,7 @@ if [[ "$CFG_SHOW_COST" == true ]]; then
   fi
   line4+="${CFG_SEPARATOR}${duration_fmt}"
 
-  printf '%b\n' "$line4"
+  printf '%s\n' "$line4"
 fi
 
 # ---------------------------------------------------------------------------
@@ -492,7 +492,7 @@ if [[ "$CFG_SHOW_WEATHER" == true ]]; then
       line5+=" ${w_temp}"
     fi
 
-    printf '%b\n' "$line5"
+    printf '%s\n' "$line5"
   fi
 fi
 

@@ -158,7 +158,7 @@ if ($CFG_SHOW_WEATHER) {
             # wttr.in: &m = metric (Celsius), &u = USCS (Fahrenheit)
             $unitParam = if ($CFG_WEATHER_UNIT -eq "F") { "&u" } else { "&m" }
             $wResp = Invoke-RestMethod -Uri "https://wttr.in/?format=%c|%t${unitParam}" -TimeoutSec 3 -ErrorAction Stop
-            $gResp = Invoke-RestMethod -Uri "http://ip-api.com/json/?fields=countryCode,city" -TimeoutSec 3 -ErrorAction Stop
+            $gResp = Invoke-RestMethod -Uri "https://ip-api.com/json/?fields=countryCode,city" -TimeoutSec 3 -ErrorAction Stop
             $cc   = if ($gResp.countryCode) { $gResp.countryCode } else { "" }
             $city = if ($gResp.city) { $gResp.city } else { "" }
             $wResp = $wResp.Trim()

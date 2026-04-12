@@ -50,6 +50,7 @@ done
 # --- Create session directory ---
 SESSION_DIR="$BRIF_DIR/$SESSION_ID"
 mkdir -p "$SESSION_DIR"
+chmod 700 "$SESSION_DIR"
 
 # --- Create/update current symlink ---
 ln -sfn "$SESSION_DIR" "$BRIF_DIR/current"
