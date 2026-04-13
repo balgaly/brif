@@ -1,5 +1,22 @@
 # Changelog
 
+## v1.0.1 — 2026-04-13
+
+### Security
+- Fix command injection via `--resume` argument in `brif` launcher (SESSION_ID
+  sanitized; passed to tmux via `set-environment` instead of inline shell string)
+- Fix directory traversal in `brif-pane.sh` and `brif-pane.ps1`: SESSION_ID
+  now validated against `^[a-zA-Z0-9._-]+$` before use in file paths
+- Upgrade ip-api.com geolocation fetch from HTTP to HTTPS in `statusline.sh`
+  and `statusline.ps1`
+- Replace `printf '%b'` with `printf '%s'` in `statusline.sh` (ANSI constants
+  converted to `$'\033'`) — prevents terminal-escape injection from
+  user-controlled strings such as directory names and git branch names
+- Add `chmod 700` on all brif session directories (`install.sh`, `brif`,
+  `hooks/post-tool-use.sh`, `hooks/user-prompt.sh`) to protect `events.jsonl`
+  (which logs full user prompt text) on multi-user systems
+- Write initial `mission.json` atomically via `.tmp` + `mv` in `brif` launcher
+
 ## v1.0.0 — 2026-04-03
 
 ### Features

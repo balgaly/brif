@@ -83,6 +83,7 @@ success "Downloaded statusline.sh to $SCRIPT_DEST (executable)"
 # Step 2b: Download brif files
 info "Downloading brif files ..."
 mkdir -p "$BRIF_DIR" "$BRIF_HOOKS_DIR"
+chmod 700 "$BRIF_DIR" "$BRIF_HOOKS_DIR"
 
 for entry in "${BRIF_FILES[@]}"; do
   src="${entry%%:*}"
