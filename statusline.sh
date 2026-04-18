@@ -140,42 +140,63 @@ fmt_duration() {
 }
 
 # ---------------------------------------------------------------------------
-# Git info (cached)
+# Git info (cached per-directory)
 # ---------------------------------------------------------------------------
-GIT_CACHE="${TMPDIR:-/tmp}/brif-git-cache-$(id -u)"
+# Cache is keyed by a hash of the working directory so switching projects
+# invalidates the cache instead of returning stale repo/branch info.
+GIT_CACHE_DIR="${TMPDIR:-/tmp}/brif-git-cache-$(id -u)"
+mkdir -p "$GIT_CACHE_DIR" 2>/dev/null
 
 get_git_info() {
   local work_dir="$1"
   [[ -z "$work_dir" ]] && return
 
+  # Per-directory cache key (MD5 of absolute path)
+  local dir_key
+  if command -v md5sum >/dev/null 2>&1; then
+    dir_key="$(printf '%s' "$work_dir" | md5sum | cut -c1-12)"
+  elif command -v md5 >/dev/null 2>&1; then
+    dir_key="$(printf '%s' "$work_dir" | md5 | cut -c1-12)"
+  else
+    # Fallback: sanitize path to filename-safe chars
+    dir_key="$(printf '%s' "$work_dir" | tr -c 'a-zA-Z0-9' '_')"
+  fi
+  local cache_file="$GIT_CACHE_DIR/$dir_key"
+
   # Check cache freshness
-  if [[ -f "$GIT_CACHE" ]]; then
+  if [[ -f "$cache_file" ]]; then
     local cache_age=0
     if [[ "$(uname)" == "Darwin" ]]; then
       local cache_mtime
-      cache_mtime="$(stat -f '%m' "$GIT_CACHE" 2>/dev/null || echo 0)"
+      cache_mtime="$(stat -f '%m' "$cache_file" 2>/dev/null || echo 0)"
       cache_age=$(( $(date +%s) - cache_mtime ))
     else
       local cache_mtime
-      cache_mtime="$(stat -c '%Y' "$GIT_CACHE" 2>/dev/null || echo 0)"
+      cache_mtime="$(stat -c '%Y' "$cache_file" 2>/dev/null || echo 0)"
       cache_age=$(( $(date +%s) - cache_mtime ))
     fi
     if (( cache_age < CFG_CACHE_GIT_SEC )); then
-      cat "$GIT_CACHE"
+      cat "$cache_file"
       return
     fi
   fi
 
-  # Gather git data
+  # Gather git data. First: is this a git repo at all?
+  # rev-parse --git-dir is the authoritative check — works in detached HEAD too.
+  if ! git -C "$work_dir" rev-parse --git-dir >/dev/null 2>&1; then
+    printf '' > "$cache_file"
+    return
+  fi
+
   local branch staged modified untracked
   local repo_root repo_name
   repo_root="$(git -C "$work_dir" rev-parse --show-toplevel 2>/dev/null)"
   repo_name="$(basename "$repo_root" 2>/dev/null)"
   branch="$(git -C "$work_dir" branch --show-current 2>/dev/null)"
   if [[ -z "$branch" ]]; then
-    # Not a git repo or detached HEAD
-    printf '' > "$GIT_CACHE"
-    return
+    # Detached HEAD: fall back to short commit SHA
+    branch="$(git -C "$work_dir" rev-parse --short HEAD 2>/dev/null)"
+    [[ -n "$branch" ]] && branch="($branch)"
   fi
 
   staged="$(git -C "$work_dir" diff --cached --numstat 2>/dev/null | wc -l | tr -d ' ')"
@@ -183,7 +204,7 @@ get_git_info() {
   untracked="$(git -C "$work_dir" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')"
 
   local result="${repo_name}|${branch}|${staged}|${modified}|${untracked}"
-  printf '%s' "$result" > "$GIT_CACHE"
+  printf '%s' "$result" > "$cache_file"
   printf '%s' "$result"
 }
 
@@ -324,24 +345,51 @@ if [[ "${CFG_STYLE:-banner}" == "banner" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# LINE 1: Model | Path | Session | Agent/Worktree
+# Pre-fetch git info so line 1 can show repo name before model
+# ---------------------------------------------------------------------------
+git_dir="${work_dir:-${project_dir:-$cwd}}"
+git_raw_line1=""
+if [[ "$CFG_SHOW_GIT" == true ]]; then
+  git_raw_line1="$(get_git_info "$git_dir")"
+fi
+
+# Location name: repo name if in git, else cwd basename.
+# git_raw_line1 is a 5-field string; we only need field 1 (repo name) here.
+# Branch, staged, modified, untracked are re-parsed for line 2 below.
+location_name=""
+if [[ -n "$git_raw_line1" ]]; then
+  IFS='|' read -r _repo_tmp _rest <<< "$git_raw_line1"
+  location_name="$_repo_tmp"
+fi
+if [[ -z "$location_name" && -n "$display_dir" ]]; then
+  location_name="$(basename "$display_dir" 2>/dev/null)"
+fi
+
+# ---------------------------------------------------------------------------
+# LINE 1: Folder/Repo | Model | Path | Session | Agent/Worktree
 # ---------------------------------------------------------------------------
 line1=""
 
-# Model name in cyan
-if [[ -n "$display_model" ]]; then
-  line1="${C_CYAN}${C_BOLD}${display_model}${C_RESET}"
+# Folder or repo name prefix (dim bold)
+if [[ -n "$location_name" ]]; then
+  line1="${C_BOLD}${location_name}${C_RESET}"
 fi
 
-# Path
-if [[ -n "$display_dir" ]]; then
+# Model name in cyan
+if [[ -n "$display_model" ]]; then
+  [[ -n "$line1" ]] && line1+="  "
+  line1+="${C_CYAN}${C_BOLD}${display_model}${C_RESET}"
+fi
+
+# Path (skipped when location_name already covers it; keeps line 1 readable)
+if [[ -z "$location_name" && -n "$display_dir" ]]; then
   [[ -n "$line1" ]] && line1+="  "
   line1+="${display_dir}"
 fi
 
 # Session
 if [[ "$CFG_SHOW_SESSION" == true && -n "$short_session" ]]; then
-  line1+="${CFG_SEPARATOR}${C_DIM}#${short_session}${C_RESET}"
+  line1+="${CFG_SEPARATOR}#${short_session}"
 fi
 
 # Vim mode
@@ -365,17 +413,14 @@ printf '%s\n' "$line1"
 # LINE 2: Git branch + stats | Lines added/removed
 # ---------------------------------------------------------------------------
 if [[ "$CFG_SHOW_GIT" == true ]]; then
-  git_dir="${work_dir:-${project_dir:-$cwd}}"
-  git_raw="$(get_git_info "$git_dir")"
+  # Reuse pre-fetched git info from line 1
+  git_raw="$git_raw_line1"
 
   if [[ -n "$git_raw" ]]; then
     IFS='|' read -r repo_name branch staged modified untracked <<< "$git_raw"
 
-    line2="${CFG_PREFIX}"
-    if [[ -n "$repo_name" ]]; then
-      line2+="${C_BOLD}${repo_name}${C_RESET}  "
-    fi
-    line2+="${C_MAGENTA}${C_BOLD}${branch}${C_RESET}"
+    # Repo name moved to line 1 prefix; line 2 shows only branch + change counts
+    line2="${CFG_PREFIX}${C_MAGENTA}${C_BOLD}${branch}${C_RESET}"
 
     if (( staged > 0 )); then
       line2+="  ${C_GREEN}+${staged} staged${C_RESET}"
@@ -470,6 +515,110 @@ if [[ "$CFG_SHOW_COST" == true ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# MISSION BLOCK: goal (with progress bar + status badge) + recent summary
+# ---------------------------------------------------------------------------
+mission_file=""
+if [[ -n "${BRIF_SESSION_ID:-}" && "$BRIF_SESSION_ID" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+  candidate="$HOME/.claude/brif/$BRIF_SESSION_ID/mission.json"
+  [[ -f "$candidate" ]] && mission_file="$candidate"
+fi
+if [[ -z "$mission_file" ]]; then
+  candidate="$HOME/.claude/brif/current/mission.json"
+  if [[ -f "$candidate" ]]; then
+    # Only use current/ if it belongs to this session
+    session_id_file="$HOME/.claude/brif/current/.session_id"
+    current_owner=""
+    [[ -f "$session_id_file" ]] && current_owner="$(tr -d '[:space:]' < "$session_id_file")"
+    my_session_id="$session_id"
+    if [[ -z "$current_owner" || -z "$my_session_id" || "$current_owner" == "$my_session_id" ]]; then
+      mission_file="$candidate"
+    fi
+  fi
+fi
+
+# Word-boundary truncation: cut at last space before $2 chars, append …
+truncate_to_width() {
+  local text="$1"
+  local max="$2"
+  local len=${#text}
+  if (( max <= 1 || len <= max )); then
+    printf '%s' "$text"
+    return
+  fi
+  local cut=$(( max - 1 ))
+  local head="${text:0:cut}"
+  # Find last space in head
+  local trimmed="${head% *}"
+  if [[ "$trimmed" == "$head" || -z "$trimmed" ]]; then
+    # No space found (or single long word) — hard cut
+    printf '%s…' "$head"
+  else
+    printf '%s…' "$trimmed"
+  fi
+}
+
+if [[ -n "$mission_file" ]]; then
+  m_goal="$(jq -r '.goal // empty' "$mission_file" 2>/dev/null)"
+  m_summary="$(jq -r '.summary // empty' "$mission_file" 2>/dev/null)"
+  m_done="$(jq -r '.progress // [] | length' "$mission_file" 2>/dev/null || echo 0)"
+  m_rem="$(jq -r '.remaining // [] | length' "$mission_file" 2>/dev/null || echo 0)"
+  m_status="$(jq -r '.status // "active"' "$mission_file" 2>/dev/null)"
+  m_pending="$(jq -r '.pending // empty' "$mission_file" 2>/dev/null)"
+  m_total=$(( m_done + m_rem ))
+
+  # Terminal width for truncation
+  term_width="${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}"
+
+  if [[ -n "$m_goal" ]]; then
+    # 10-segment progress bar
+    if (( m_total > 0 )); then
+      m_filled=$(( m_done * 10 / m_total ))
+    else
+      m_filled=0
+    fi
+    m_empty=$(( 10 - m_filled ))
+    m_bar=""
+    for (( i = 0; i < m_filled; i++ )); do m_bar+="="; done
+    for (( i = 0; i < m_empty;  i++ )); do m_bar+="-"; done
+
+    # Status badge
+    case "$m_status" in
+      waiting_approval) status_badge="${C_YELLOW}APPROVE${C_RESET}" ;;
+      blocked)          status_badge="${C_RED}BLOCKED${C_RESET}" ;;
+      idle)             status_badge="IDLE" ;;
+      *)                status_badge="" ;;
+    esac
+
+    # Truncate goal — reserve space for bar (~17) + badge (~9) + prefix (~3)
+    goal_overhead=3
+    (( m_total > 0 )) && goal_overhead=$(( goal_overhead + 17 ))
+    [[ -n "$status_badge" ]] && goal_overhead=$(( goal_overhead + 9 ))
+    goal_max=$(( term_width - goal_overhead ))
+    (( goal_max < 10 )) && goal_max=10
+    goal_display="$(truncate_to_width "$m_goal" "$goal_max")"
+
+    line_goal=" | ${goal_display}"
+    if (( m_total > 0 )); then
+      line_goal+="  [${m_bar}] ${m_done}/${m_total}"
+    fi
+    [[ -n "$status_badge" ]] && line_goal+="  ${status_badge}"
+    if [[ -n "$m_pending" && "$m_status" == "waiting_approval" ]]; then
+      line_goal+="  ${C_DIM}${m_pending}${C_RESET}"
+    fi
+    printf '%b\n' "$line_goal"
+  fi
+
+  # Recent summary — suppress below 50 cols
+  if [[ -n "$m_summary" && "$term_width" -ge 50 ]]; then
+    # Overhead: " | " (3) + "recent  " (8) = 11
+    recent_max=$(( term_width - 11 ))
+    (( recent_max < 10 )) && recent_max=10
+    recent_display="$(truncate_to_width "$m_summary" "$recent_max")"
+    printf '%b\n' " | ${C_BOLD}recent${C_RESET}  ${recent_display}"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # LINE 5: Weather (country + condition + temp)
 # ---------------------------------------------------------------------------
 if [[ "$CFG_SHOW_WEATHER" == true ]]; then
@@ -505,8 +654,11 @@ if [[ -n "${BRIF_SESSION_ID:-}" ]]; then
   fi
   metrics_dir="$HOME/.claude/brif/$BRIF_SESSION_ID"
   if [[ -d "$metrics_dir" ]]; then
-    git_dir="${work_dir:-${project_dir:-$cwd}}"
-    current_branch="$(git -C "$git_dir" branch --show-current 2>/dev/null || echo '')"
+    # Reuse branch from git_raw_line1 (pre-fetched for line 1) — avoids a fork
+    current_branch=""
+    if [[ -n "$git_raw_line1" ]]; then
+      IFS='|' read -r _ current_branch _ _ _ <<< "$git_raw_line1"
+    fi
     jq -n --argjson ctx "$used_pct_int" \
            --argjson cost "$total_cost" \
            --argjson dur "$total_duration" \

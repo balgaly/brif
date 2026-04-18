@@ -1,6 +1,7 @@
 {
   "version": 1,
   "goal": "Replace session-based auth with JWT token validation",
+  "summary": "Refactored auth.ts, added jwt types, updated config — next wire refresh endpoint",
   "progress": [
     "auth.ts refactored",
     "jwt.ts types added",

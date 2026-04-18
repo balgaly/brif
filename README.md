@@ -33,6 +33,7 @@ A compact 2-line metrics bar at the bottom of your terminal. Updated after every
 | **Line 1** | Model name, git branch + changes, context progress bar, cost, duration |
 | **Line 2** | Token breakdown (in/out/cache), lines added/removed, session ID |
 | **Mission** | Current goal + task progress (requires [CLAUDE.md snippet](#brif-pane)) |
+| **Recent** | One-sentence summary of what the assistant did recently — updated every ~10 prompts. Narrows gracefully; hidden below 50 cols. |
 
 The context progress bar shifts color as usage climbs:
 

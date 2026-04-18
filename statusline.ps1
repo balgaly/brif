@@ -102,7 +102,17 @@ $gitModified  = 0
 $gitUntracked = 0
 
 if ($CFG_SHOW_GIT) {
-    $cacheFile   = "$env:TEMP\brif-git-cache"
+    # Resolve session cwd — the directory Claude Code is working in, not $PWD
+    $gitWorkDir = if ($cwd) { $cwd } elseif ($projectDir) { $projectDir } else { $null }
+
+    # Per-directory cache key (MD5 of absolute path) — switching projects invalidates cache
+    $cacheDir = "$env:TEMP\brif-git-cache"
+    if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null }
+    $pathForHash = if ($gitWorkDir) { $gitWorkDir } else { "unknown" }
+    $md5 = [System.Security.Cryptography.MD5]::Create()
+    $hashBytes = $md5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($pathForHash))
+    $dirKey = ([System.BitConverter]::ToString($hashBytes) -replace '-', '').Substring(0, 12).ToLower()
+    $cacheFile   = Join-Path $cacheDir $dirKey
     $cacheMaxAge = $CFG_CACHE_GIT_SEC
 
     $cacheStale = $true
@@ -113,15 +123,20 @@ if ($CFG_SHOW_GIT) {
 
     if ($cacheStale) {
         try {
-            $null = git rev-parse --git-dir 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                $repoRoot  = git rev-parse --show-toplevel 2>$null
-                $repoName  = if ($repoRoot) { Split-Path $repoRoot -Leaf } else { "" }
-                $branch    = git branch --show-current 2>$null
-                $staged    = (git diff --cached --numstat 2>$null | Measure-Object -Line).Lines
-                $modified  = (git diff --numstat 2>$null | Measure-Object -Line).Lines
-                $untracked = (git ls-files --others --exclude-standard 2>$null | Measure-Object -Line).Lines
-                "$repoName|$branch|$staged|$modified|$untracked" | Out-File -FilePath $cacheFile -NoNewline
+            # Run git against the session cwd, not the process cwd
+            if ($gitWorkDir -and (Test-Path $gitWorkDir)) {
+                $null = git -C "$gitWorkDir" rev-parse --git-dir 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    $repoRoot  = git -C "$gitWorkDir" rev-parse --show-toplevel 2>$null
+                    $repoName  = if ($repoRoot) { Split-Path $repoRoot -Leaf } else { "" }
+                    $branch    = git -C "$gitWorkDir" branch --show-current 2>$null
+                    $staged    = (git -C "$gitWorkDir" diff --cached --numstat 2>$null | Measure-Object -Line).Lines
+                    $modified  = (git -C "$gitWorkDir" diff --numstat 2>$null | Measure-Object -Line).Lines
+                    $untracked = (git -C "$gitWorkDir" ls-files --others --exclude-standard 2>$null | Measure-Object -Line).Lines
+                    "$repoName|$branch|$staged|$modified|$untracked" | Out-File -FilePath $cacheFile -NoNewline
+                } else {
+                    "||||" | Out-File -FilePath $cacheFile -NoNewline
+                }
             } else {
                 "||||" | Out-File -FilePath $cacheFile -NoNewline
             }
@@ -203,6 +218,16 @@ function FmtK($n) {
     if ($n -ge 1000) { "{0:N1}K" -f ($n / 1000) } else { "$n" }
 }
 
+# --- Helper: word-boundary truncation. Cuts at last space before $max, appends … ---
+function Truncate-ToWidth([string]$text, [int]$max) {
+    if ([string]::IsNullOrEmpty($text) -or $max -le 1) { return $text }
+    if ($text.Length -le $max) { return $text }
+    $cut = $max - 1
+    $idx = $text.LastIndexOf(' ', [Math]::Min($cut, $text.Length - 1))
+    if ($idx -lt 1) { return $text.Substring(0, $cut) + [char]0x2026 }
+    return $text.Substring(0, $idx).TrimEnd() + [char]0x2026
+}
+
 # --- Build output lines ---
 $outputLines = @()
 
@@ -240,8 +265,18 @@ if ($CFG_SHOW_GIT -and $gitBranch) {
     if ($indicators.Count -gt 0) { $gitStr += " " + ($indicators -join " ") }
 }
 
-# ===== LINE 1: [Model]  branch +s ~m  [===---] 42%/200K  $0.42  2m 0s =====
-$line1Parts = @("${BOLD}${CYAN}[$model]${RESET}")
+# ===== LINE 1: folder/repo  [Model]  branch +s ~m  [===---] 42%/200K  $0.42  2m 0s =====
+# Folder or repo name prefix (repo name wins when inside a git dir, falls back to cwd basename)
+$locationName = ""
+if ($gitRepo) {
+    $locationName = $gitRepo
+} elseif ($cwd) {
+    $locationName = Split-Path $cwd -Leaf
+}
+
+$line1Parts = @()
+if ($locationName) { $line1Parts += "${BOLD}${locationName}${RESET}" }
+$line1Parts += "${BOLD}${CYAN}[$model]${RESET}"
 if ($gitStr) { $line1Parts += $gitStr }
 $line1Parts += "${barColor}[${bar}]${RESET} ${barColor}${pct}%${RESET}/${ctxLabel}"
 if ($costStr) { $line1Parts += $costStr }
@@ -275,7 +310,7 @@ if ($CFG_SHOW_WEATHER -and $weatherInfo) {
 }
 
 if ($CFG_SHOW_SESSION -and $sessionId) {
-    $line2Parts += "${DIM}#${sessionId}${RESET}"
+    $line2Parts += "#${sessionId}"
 }
 
 if ($line2Parts.Count -gt 0) {
@@ -305,11 +340,19 @@ if ($missionFile) {
     try {
             $m = Get-Content $missionFile -Raw -Encoding utf8 | ConvertFrom-Json
             $goal    = $(if ($m.goal)     { $m.goal }     else { "" })
+            $summary = $(if ($m.summary)  { $m.summary }  else { "" })
             $mDone   = $(if ($null -ne $m.progress) { @($m.progress).Count } else { 0 })
             $mRem    = $(if ($null -ne $m.remaining) { @($m.remaining).Count } else { 0 })
             $mTotal  = $mDone + $mRem
             $mStatus = $(if ($m.status)   { $m.status }   else { "active" })
             $pending = $(if ($m.pending)  { $m.pending }  else { "" })
+
+            # Terminal width for truncation (fallback 80 if unavailable)
+            $termWidth = 80
+            try {
+                $w = $Host.UI.RawUI.WindowSize.Width
+                if ($w -and $w -gt 0) { $termWidth = $w }
+            } catch {}
 
             if ($goal) {
                 # Progress bar
@@ -320,15 +363,31 @@ if ($missionFile) {
                 $statusBadge = switch ($mStatus) {
                     "waiting_approval" { "${YELLOW}APPROVE${RESET}" }
                     "blocked"          { "${RED}BLOCKED${RESET}" }
-                    "idle"             { "${DIM}IDLE${RESET}" }
+                    "idle"             { "IDLE" }
                     default            { "" }
                 }
 
-                $mLine = "${DIM} |${RESET} ${goal}"
-                if ($mTotal -gt 0) { $mLine += "  ${DIM}[${mBar}]${RESET} ${DIM}${mDone}/${mTotal}${RESET}" }
+                # Visible overhead on the goal line: " | " (3) + "  [==========] 10/10" (~20)
+                # + badge (~8). Leave ~35 chars of headroom for the goal text itself.
+                $goalOverhead = 3
+                if ($mTotal -gt 0) { $goalOverhead += 17 }
+                if ($statusBadge)  { $goalOverhead += 9 }
+                $goalMax = [Math]::Max(10, $termWidth - $goalOverhead)
+                $goalDisplay = Truncate-ToWidth $goal $goalMax
+
+                $mLine = " | ${goalDisplay}"
+                if ($mTotal -gt 0) { $mLine += "  [${mBar}] ${mDone}/${mTotal}" }
                 if ($statusBadge)  { $mLine += "  ${statusBadge}" }
                 if ($pending -and $mStatus -eq "waiting_approval") { $mLine += "  ${DIM}${pending}${RESET}" }
                 $outputLines += $mLine
+            }
+
+            # Recent activity sentence — suppressed below 50 cols (too narrow)
+            if ($summary -and $termWidth -ge 50) {
+                # Overhead: " | " (3) + "recent  " (8) = 11
+                $recentMax = [Math]::Max(10, $termWidth - 11)
+                $recentDisplay = Truncate-ToWidth $summary $recentMax
+                $outputLines += " | ${BOLD}recent${RESET}  ${recentDisplay}"
             }
     } catch { <# silently skip on bad json #> }
 }
@@ -366,14 +425,8 @@ if ($env:BRIF_SESSION_ID) {
     if ($env:BRIF_SESSION_ID -notmatch '^[a-zA-Z0-9._-]+$') { exit }
     $metricsDir = "$env:USERPROFILE\.claude\brif\$($env:BRIF_SESSION_ID)"
     if (Test-Path $metricsDir) {
-        $gitDir = if ($cwd) { $cwd } elseif ($projectDir) { $projectDir } else { "." }
-        $currentBranch = ""
-        try {
-            $currentBranch = git -C $gitDir branch --show-current 2>$null
-            if ($LASTEXITCODE -ne 0) { $currentBranch = "" }
-        } catch {
-            $currentBranch = ""
-        }
+        # Reuse $gitBranch populated during line 1 git fetch — avoids a second fork
+        $currentBranch = if ($gitBranch) { $gitBranch } else { "" }
 
         $metrics = @{
             context_pct = $pct

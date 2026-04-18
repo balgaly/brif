@@ -15,6 +15,7 @@ Schema:
 {
   "version": 1,
   "goal": "One-sentence objective for this session",
+  "summary": "One sentence (≤15 words) describing what was done in the last ~10 interactions",
   "progress": ["Completed item 1", "Completed item 2"],
   "remaining": ["TODO item 1", "TODO item 2"],
   "status": "active",
@@ -31,6 +32,7 @@ Status values:
 Rules:
 - Set `goal` after understanding the first request — one concise sentence
 - Update `progress` / `remaining` after meaningful milestones, not every small edit
+- Rewrite `summary` every ~10 user prompts or at meaningful milestones — one sentence, ≤15 words, describing recent activity (e.g. "Refactored auth.ts, added jwt types, updated config — next wire refresh endpoint"). This is the no-tmux "recent activity" line users see in their statusline.
 - Set `status: "waiting_approval"` when requesting user action
 - Keep all strings under 80 characters
 - Write the file atomically: write to `mission.json.tmp` first, then rename to `mission.json`
