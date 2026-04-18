@@ -12,3 +12,8 @@ Thumbs.db
 /mockup*.png
 docs/superpowers/
 launch/
+
+# Skill system (installed via `npx skills` — local only, not shipped)
+.agents/
+skills/
+skills-lock.json
