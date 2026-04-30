@@ -126,6 +126,7 @@ Edit the `CONFIGURATION` block at the top of the statusline script. No external 
 | `CFG_SHOW_COST` | `true` | Session cost + burn rate + duration |
 | `CFG_SHOW_LINES` | `true` | Lines added/removed in session |
 | `CFG_SHOW_SESSION` | `true` | Session ID (first 8 chars) |
+| `CFG_SHOW_WORKDIR` | `true` | Working directory displayed after the repo name |
 
 ### Settings
 
@@ -137,6 +138,30 @@ Edit the `CONFIGURATION` block at the top of the statusline script. No external 
 | `CFG_PREFIX` | `" .  "` | Prefix for continuation lines |
 | `CFG_SEPARATOR` | `"  \|  "` | Separator between sections |
 | `CFG_BAR_WIDTH` | `15` | Width of the context progress bar |
+| `CFG_WORKDIR_STYLE` | `"worktree"` | `"full"`, `"relative"`, `"basename"`, or `"worktree"` (see [Show workdir](#show-workdir)) |
+| `CFG_WORKDIR_MAX_LEN` | `40` | Max workdir width. Longer paths are left-truncated with `…`. |
+
+### Show workdir
+
+When you run many git worktrees off the same repo, the repo name on line 1 is
+identical across them and tells you nothing about which worktree you are in.
+`CFG_SHOW_WORKDIR` appends a dim path fragment after the repo name to
+disambiguate — rendered as `repo ▸ workdir`.
+
+`CFG_WORKDIR_STYLE` controls what gets shown:
+
+| Value | Renders |
+|-------|---------|
+| `"full"` | Absolute path (`/home/user/projects/my-app`) |
+| `"relative"` | `$HOME`-relative path (`~/projects/my-app`) |
+| `"basename"` | Just the cwd leaf (`my-app`) |
+| `"worktree"` *(default)* | The cwd leaf, **only** when it differs from the repo name. Users with a single worktree see nothing; users with `code-koala-worktrees/p01-numbered-diffs` see `code-koala ▸ p01-numbered-diffs`. |
+
+Paths longer than `CFG_WORKDIR_MAX_LEN` (default `40`) are **left-truncated**
+with `…` so the worktree-specific tail is always visible. Example:
+`…/code-koala-worktrees/p01-numbered-diffs`.
+
+Set `CFG_SHOW_WORKDIR=false` to disable the suffix entirely.
 
 ### Minimal mode
 

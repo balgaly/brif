@@ -18,14 +18,17 @@ CFG_SHOW_TOKENS=true
 CFG_SHOW_COST=true
 CFG_SHOW_LINES=true
 CFG_SHOW_SESSION=true
+CFG_SHOW_WORKDIR=true
 CFG_WEATHER_UNIT="C"        # "C" for Celsius, "F" for Fahrenheit
 CFG_CACHE_GIT_SEC=5
 CFG_CACHE_WEATHER_SEC=1800  # 30 minutes
 CFG_PREFIX=" .  "
 CFG_SEPARATOR="  |  "
 CFG_BAR_WIDTH=15
-CFG_ACCENT_COLOR=""        # Hex color for accent line. Empty = rainbow gradient.
-CFG_STYLE="banner"         # "banner" (v2) or "classic" (v1 look)
+CFG_ACCENT_COLOR=""          # Hex color for accent line. Empty = rainbow gradient.
+CFG_STYLE="banner"           # "banner" (v2) or "classic" (v1 look)
+CFG_WORKDIR_STYLE="worktree" # "full", "relative", "basename", "worktree"
+CFG_WORKDIR_MAX_LEN=40       # Left-truncate workdir past this width
 # =========================
 
 # ---------------------------------------------------------------------------
@@ -366,6 +369,42 @@ if [[ -z "$location_name" && -n "$display_dir" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Workdir suffix: optional path fragment rendered after location_name on line 1.
+# Disambiguates multiple git worktrees of the same repo (which share repo_name).
+# ---------------------------------------------------------------------------
+workdir_suffix=""
+if [[ "$CFG_SHOW_WORKDIR" == true && -n "$display_dir" ]]; then
+  # Resolve raw absolute path (display_dir has already been ~-shortened)
+  raw_dir="${work_dir:-${project_dir:-$cwd}}"
+  wd_base="$(basename "$raw_dir" 2>/dev/null)"
+
+  case "$CFG_WORKDIR_STYLE" in
+    full)
+      workdir_suffix="$raw_dir"
+      ;;
+    relative)
+      workdir_suffix="$display_dir"
+      ;;
+    basename)
+      workdir_suffix="$wd_base"
+      ;;
+    worktree|*)
+      # Show basename only when it differs from repo name
+      if [[ -n "$location_name" && "$wd_base" != "$location_name" ]]; then
+        workdir_suffix="$wd_base"
+      fi
+      ;;
+  esac
+
+  # Left-truncate (preserve worktree-specific tail) if longer than max
+  if [[ -n "$workdir_suffix" ]] && (( ${#workdir_suffix} > CFG_WORKDIR_MAX_LEN )); then
+    keep=$(( CFG_WORKDIR_MAX_LEN - 1 ))
+    (( keep < 1 )) && keep=1
+    workdir_suffix="…${workdir_suffix: -$keep}"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # LINE 1: Folder/Repo | Model | Path | Session | Agent/Worktree
 # ---------------------------------------------------------------------------
 line1=""
@@ -373,6 +412,15 @@ line1=""
 # Folder or repo name prefix (dim bold)
 if [[ -n "$location_name" ]]; then
   line1="${C_BOLD}${location_name}${C_RESET}"
+fi
+
+# Workdir suffix (dim, separator glyph between repo and path)
+if [[ -n "$workdir_suffix" ]]; then
+  if [[ -n "$line1" ]]; then
+    line1+="${C_DIM} ▸ ${workdir_suffix}${C_RESET}"
+  else
+    line1+="${C_DIM}${workdir_suffix}${C_RESET}"
+  fi
 fi
 
 # Model name in cyan

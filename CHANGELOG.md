@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Features
+- Add optional workdir display on line 1 of the statusline
+  (`CFG_SHOW_WORKDIR`, `CFG_WORKDIR_STYLE`, `CFG_WORKDIR_MAX_LEN`). Four
+  styles: `full`, `relative`, `basename`, `worktree` (default). The
+  `worktree` style renders the cwd basename only when it differs from the
+  repo name, disambiguating sibling git worktrees of the same repo. Long
+  paths are left-truncated with `…` so the worktree-specific tail is
+  preserved.
+
 ## v1.0.1 — 2026-04-13
 
 ### Security

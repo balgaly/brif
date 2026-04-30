@@ -15,14 +15,17 @@ $CFG_SHOW_TOKENS       = $true
 $CFG_SHOW_COST         = $true
 $CFG_SHOW_LINES        = $true
 $CFG_SHOW_SESSION      = $true
+$CFG_SHOW_WORKDIR      = $true
 $CFG_WEATHER_UNIT      = "C"        # "C" for Celsius, "F" for Fahrenheit
 $CFG_CACHE_GIT_SEC     = 5
 $CFG_CACHE_WEATHER_SEC = 1800       # 30 minutes
 $CFG_PREFIX            = " .  "
 $CFG_SEPARATOR         = "  |  "
 $CFG_BAR_WIDTH         = 15
-$CFG_ACCENT_COLOR      = ""        # Hex color for accent line. Empty = rainbow gradient.
-$CFG_STYLE             = "banner"  # "banner" (v2) or "classic" (v1 look)
+$CFG_ACCENT_COLOR      = ""          # Hex color for accent line. Empty = rainbow gradient.
+$CFG_STYLE             = "banner"    # "banner" (v2) or "classic" (v1 look)
+$CFG_WORKDIR_STYLE     = "worktree"  # "full", "relative", "basename", "worktree"
+$CFG_WORKDIR_MAX_LEN   = 40          # Left-truncate workdir past this width
 # =========================
 
 # --- Encoding setup (required for emoji / Unicode output) ---
@@ -274,8 +277,52 @@ if ($gitRepo) {
     $locationName = Split-Path $cwd -Leaf
 }
 
+# Workdir suffix: optional path fragment rendered after location_name.
+# Disambiguates multiple git worktrees of the same repo (which share repo_name).
+$workdirSuffix = ""
+if ($CFG_SHOW_WORKDIR -and $cwd) {
+    $rawDir  = $cwd
+    $wdBase  = Split-Path $rawDir -Leaf
+
+    # ~-relative form — match bash behavior, normalize to forward slashes so
+    # the $HOME prefix match is insensitive to slash direction.
+    $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+    $rawFwd  = $rawDir  -replace '\\', '/'
+    $homeFwd = if ($homeDir) { $homeDir -replace '\\', '/' } else { '' }
+    $relDir  = $rawFwd
+    if ($homeFwd -and $rawFwd.StartsWith($homeFwd, [StringComparison]::OrdinalIgnoreCase)) {
+        $relDir = '~' + $rawFwd.Substring($homeFwd.Length)
+    }
+
+    switch ($CFG_WORKDIR_STYLE) {
+        "full"     { $workdirSuffix = ($rawDir -replace '\\', '/') }
+        "relative" { $workdirSuffix = $relDir }
+        "basename" { $workdirSuffix = $wdBase }
+        default {
+            # "worktree": show basename only when it differs from the location name
+            if ($locationName -and $wdBase -and $wdBase -ne $locationName) {
+                $workdirSuffix = $wdBase
+            }
+        }
+    }
+
+    # Left-truncate (preserve worktree-specific tail) if longer than max
+    if ($workdirSuffix -and $workdirSuffix.Length -gt $CFG_WORKDIR_MAX_LEN) {
+        $keep = [Math]::Max(1, $CFG_WORKDIR_MAX_LEN - 1)
+        $workdirSuffix = [char]0x2026 + $workdirSuffix.Substring($workdirSuffix.Length - $keep)
+    }
+}
+
 $line1Parts = @()
-if ($locationName) { $line1Parts += "${BOLD}${locationName}${RESET}" }
+if ($locationName) {
+    $loc = "${BOLD}${locationName}${RESET}"
+    if ($workdirSuffix) {
+        $loc += "${DIM} $([char]0x25B8) ${workdirSuffix}${RESET}"
+    }
+    $line1Parts += $loc
+} elseif ($workdirSuffix) {
+    $line1Parts += "${DIM}${workdirSuffix}${RESET}"
+}
 $line1Parts += "${BOLD}${CYAN}[$model]${RESET}"
 if ($gitStr) { $line1Parts += $gitStr }
 $line1Parts += "${barColor}[${bar}]${RESET} ${barColor}${pct}%${RESET}/${ctxLabel}"
