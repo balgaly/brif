@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.1.0 — 2026-05-01
 
 ### Features
 - Add optional workdir display on line 1 of the statusline
