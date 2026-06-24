@@ -242,7 +242,80 @@ The statusline integrates with the `statusLine` command interface. After each as
 | **Progress bar** | Unicode block characters | ASCII `=`/`-` (encoding-safe) |
 | **Flags/emoji** | Native rendering | Country shown as bold text (`US`, `IL`) |
 | **JSON parsing** | `jq` (required) | Built-in PowerShell |
-| **brif pane** | tmux (native) | tmux via WSL or Git Bash |
+| **brif pane** | tmux (native) | psmux (native, no WSL) — see [Windows / psmux](#windows--psmux-no-wsl-no-docker) |
+
+---
+
+## Windows / psmux (no WSL, no Docker)
+
+[psmux](https://github.com/psmux/psmux) is a native Windows terminal multiplexer (Rust, ConPTY). No WSL, Cygwin, or Docker required. It speaks the tmux command language, so `brif.ps1` drives it the same way the Unix `brif` launcher drives tmux.
+
+### Install psmux
+
+```powershell
+winget install marlocarlo.psmux
+```
+
+Restart your terminal after install. Verify:
+
+```powershell
+psmux -V   # should print: tmux x.x.x  psmux vx.x.x
+```
+
+### Launch brif with psmux
+
+```powershell
+.\brif.ps1                          # start a new brif session
+.\brif.ps1 --resume <session-id>    # resume an existing session
+.\brif.ps1 -- --continue            # pass flags to claude
+```
+
+`brif.ps1` creates a psmux session with:
+- **Top pane** (7 lines) — `brif-pane.ps1` mission dashboard: goal, progress, ctx%, cost
+- **Bottom pane** — `claude` (Claude Code CLI)
+
+Press **Enter** in the top pane to toggle between active (expanded) and ambient (compact) modes.
+
+### Multi-session vibe-coding
+
+Each psmux **window** is an independent Claude session. Within one terminal window you can run as many as you need:
+
+| Action | How |
+|--------|-----|
+| New Claude session | `prefix + C` (configured in `psmux.conf.example`) |
+| Switch sessions | `prefix + s` (built-in session list) |
+| Side-by-side panes | `prefix + \|` (configured in `psmux.conf.example`) |
+| Detach (session stays alive) | `prefix + d` |
+| Re-attach | `psmux attach -t <name>` |
+
+### Optional: starter psmux config
+
+Copy `psmux.conf.example` to `%USERPROFILE%\.psmux.conf`:
+
+```powershell
+Copy-Item .\psmux.conf.example "$HOME\.psmux.conf"
+```
+
+This sets up vim-style pane navigation, mouse support, larger scrollback, and the `prefix + C` binding for instant new Claude windows.
+
+Reload without restarting: `psmux source-file ~/.psmux.conf`
+
+### Watching parallel Claude work
+
+**Subagents** that Claude spawns run _inline_ inside their parent session's context — they are not separate processes and cannot be placed in their own panes. To monitor many independent Claude sessions from one place, use **background agents**:
+
+1. Start background sessions via Claude Code's agent-view (`/agents` command inside `claude`).
+2. psmux handles your terminal layout; agent-view handles parallel session monitoring.
+
+### Troubleshooting (Windows / psmux)
+
+| Problem | Solution |
+|---------|----------|
+| `psmux: command not found` | Restart terminal after `winget install marlocarlo.psmux` |
+| Top pane blank | Check `~/.claude/brif/current/mission.json` exists. Created after the first Claude prompt. |
+| Session not auto-destroying | `destroy-unattached` may not be supported by your psmux version — safe to ignore; kill manually with `psmux kill-session -t <name>` |
+| Pane sizes wrong | Resize the terminal before launching, or set fixed size: `psmux new-session -d -s name -x 220 -y 50` |
+| `brif.ps1 --resume` not working | Pass the bare session ID (e.g. `brif.ps1 --resume a1b2c3d4`), not the full `brif-a1b2c3d4` name |
 
 ---
 
@@ -267,7 +340,7 @@ echo '{"model":{"display_name":"Opus"},"cwd":"~/project","workspace":{"current_d
 | `jq: command not found` | Install jq: `brew install jq` (macOS) or `apt install jq` (Linux). |
 | Slow/laggy updates | Increase `CFG_CACHE_GIT_SEC` for large repos. |
 | brif pane blank | Check that `~/.claude/brif/current/mission.json` exists. It is created after the first prompt. |
-| `tmux: command not found` | Install tmux: `brew install tmux` (macOS) or `apt install tmux` (Linux). |
+| `tmux: command not found` | Install tmux: `brew install tmux` (macOS) or `apt install tmux` (Linux). On Windows, install psmux instead: `winget install marlocarlo.psmux` |
 
 ---
 
