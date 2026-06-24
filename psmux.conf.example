@@ -1,0 +1,65 @@
+# psmux.conf.example — starter config for vibe-coding with brif on Windows
+#
+# Copy to: %USERPROFILE%\.psmux.conf  (i.e. C:\Users\<you>\.psmux.conf)
+# psmux reads this file on startup automatically.
+# Reload without restart: psmux source-file ~/.psmux.conf
+#
+# Reference: https://github.com/psmux/psmux/blob/master/docs/tmux_args_reference.md
+
+# --- Prefix key ---
+# Default is C-b. Change if you prefer something easier to reach.
+# set -g prefix C-a
+# unbind C-b
+# bind C-a send-prefix
+
+# --- Mouse support ---
+set -g mouse on
+
+# --- Larger scrollback ---
+set -g history-limit 10000
+
+# --- Windows start at 1 (easier keyboard reach) ---
+set -g base-index 1
+
+# --- Status bar ---
+# Keep a minimal status bar so it doesn't fight the brif pane.
+# brif renders its own mission dashboard in the top split pane.
+set -g status on
+set -g status-position bottom
+set -g status-style "bg=colour234 fg=colour250"
+set -g status-left "#[bold]#S#[nobold]  "
+set -g status-left-length 20
+set -g status-right " #I:#W "
+set -g status-right-length 30
+
+# --- Pane splits (intuitive: | = vertical bar = side by side) ---
+bind | split-window -h -c "#{pane_current_path}"
+bind - split-window -v -c "#{pane_current_path}"
+unbind '"'
+unbind %
+
+# --- New window in the same directory ---
+bind c new-window -c "#{pane_current_path}"
+
+# --- Open a new Claude Code session in a new window (prefix + C) ---
+# Each window gets its own independent brif session via brif.ps1.
+bind C new-window -c "#{pane_current_path}" "pwsh -NoProfile -File $HOME/.claude/brif.ps1"
+
+# --- Pane navigation (vim-style) ---
+bind h select-pane -L
+bind j select-pane -D
+bind k select-pane -U
+bind l select-pane -R
+
+# --- Pane resize ---
+bind -r H resize-pane -L 5
+bind -r J resize-pane -D 5
+bind -r K resize-pane -U 5
+bind -r L resize-pane -R 5
+
+# --- Quick session switch (prefix + s shows session list) ---
+# Already built-in; no extra config needed.
+
+# --- Visual activity alert ---
+setw -g monitor-activity on
+set  -g visual-activity off
