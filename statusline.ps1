@@ -98,11 +98,15 @@ $worktree   = if ($data.worktree.name) { $data.worktree.name } else { "" }
 $sessionId  = if ($data.session_id) { $data.session_id.Substring(0, [Math]::Min(8, $data.session_id.Length)) } else { "" }
 
 # --- Git info (cached to temp file) ---
-$gitRepo      = ""
-$gitBranch    = ""
-$gitStaged    = 0
-$gitModified  = 0
-$gitUntracked = 0
+$gitRepo       = ""
+$gitBranch     = ""
+$gitStaged     = 0
+$gitModified   = 0
+$gitUntracked  = 0
+$gitIsWorktree = $false
+$gitMainRoot   = ""
+$gitWtToplevel = ""
+$gitWtBranch   = ""
 
 if ($CFG_SHOW_GIT) {
     # Resolve session cwd — the directory Claude Code is working in, not $PWD
@@ -130,13 +134,44 @@ if ($CFG_SHOW_GIT) {
             if ($gitWorkDir -and (Test-Path $gitWorkDir)) {
                 $null = git -C "$gitWorkDir" rev-parse --git-dir 2>$null
                 if ($LASTEXITCODE -eq 0) {
-                    $repoRoot  = git -C "$gitWorkDir" rev-parse --show-toplevel 2>$null
-                    $repoName  = if ($repoRoot) { Split-Path $repoRoot -Leaf } else { "" }
-                    $branch    = git -C "$gitWorkDir" branch --show-current 2>$null
+                    $showToplevel   = git -C "$gitWorkDir" rev-parse --show-toplevel 2>$null
+                    $gitDirVal      = git -C "$gitWorkDir" rev-parse --git-dir 2>$null
+                    $commonDirVal   = git -C "$gitWorkDir" rev-parse --git-common-dir 2>$null
+                    # Normalize slashes for comparison
+                    $gitDirFwd    = if ($gitDirVal)    { $gitDirVal    -replace '\\','/' } else { "" }
+                    $commonDirFwd = if ($commonDirVal) { $commonDirVal -replace '\\','/' } else { "" }
+                    $isWt = ($gitDirFwd -and $commonDirFwd -and $gitDirFwd -ne $commonDirFwd)
+
+                    # main_repo_root: parent of common_dir when common_dir ends in .git
+                    $mainRepoRoot = ""
+                    if ($isWt -and $commonDirVal) {
+                        $mainRepoRoot = if ($commonDirFwd -match '/\.git$') {
+                            Split-Path $commonDirVal -Parent
+                        } else { $commonDirVal }
+                    }
+
+                    $repoName = if ($isWt -and $mainRepoRoot) {
+                        Split-Path $mainRepoRoot -Leaf
+                    } elseif ($showToplevel) {
+                        Split-Path $showToplevel -Leaf
+                    } else { "" }
+
+                    $branch = git -C "$gitWorkDir" branch --show-current 2>$null
+                    # Detached HEAD fallback (parity with statusline.sh:199-203)
+                    if (-not $branch) {
+                        $shortSha = git -C "$gitWorkDir" rev-parse --short HEAD 2>$null
+                        if ($shortSha) { $branch = "($shortSha)" }
+                    }
+
                     $staged    = (git -C "$gitWorkDir" diff --cached --numstat 2>$null | Measure-Object -Line).Lines
                     $modified  = (git -C "$gitWorkDir" diff --numstat 2>$null | Measure-Object -Line).Lines
                     $untracked = (git -C "$gitWorkDir" ls-files --others --exclude-standard 2>$null | Measure-Object -Line).Lines
-                    "$repoName|$branch|$staged|$modified|$untracked" | Out-File -FilePath $cacheFile -NoNewline
+
+                    # v2 cache format — sanitize pipe chars in paths
+                    $isWtStr      = if ($isWt) { "1" } else { "0" }
+                    $mainRootSafe = ($mainRepoRoot -replace '\|','')
+                    $toplevelSafe = ($showToplevel  -replace '\|','')
+                    "v2|$repoName|$branch|$staged|$modified|$untracked|$isWtStr|$mainRootSafe|$toplevelSafe|$branch" | Out-File -FilePath $cacheFile -NoNewline
                 } else {
                     "||||" | Out-File -FilePath $cacheFile -NoNewline
                 }
@@ -149,7 +184,19 @@ if ($CFG_SHOW_GIT) {
     }
 
     $cached = (Get-Content $cacheFile -Raw).Split('|')
-    if ($cached.Count -ge 5) {
+    if ($cached.Count -ge 1 -and $cached[0] -eq 'v2' -and $cached.Count -ge 10) {
+        # v2|repo|branch|staged|modified|untracked|is_worktree|main_repo_root|worktree_toplevel|worktree_branch
+        $gitRepo      = $cached[1]
+        $gitBranch    = $cached[2]
+        $gitStaged    = [int]($cached[3])
+        $gitModified  = [int]($cached[4])
+        $gitUntracked = [int]($cached[5])
+        $gitIsWorktree = $cached[6] -eq '1'
+        $gitMainRoot   = $cached[7]
+        $gitWtToplevel = $cached[8]
+        $gitWtBranch   = $cached[9]
+    } elseif ($cached.Count -ge 5) {
+        # v1 legacy (5 fields, no version prefix)
         $gitRepo      = $cached[0]
         $gitBranch    = $cached[1]
         $gitStaged    = [int]($cached[2])
@@ -277,15 +324,16 @@ if ($gitRepo) {
     $locationName = Split-Path $cwd -Leaf
 }
 
-# Workdir suffix: optional path fragment rendered after location_name.
-# Disambiguates multiple git worktrees of the same repo (which share repo_name).
+# Workdir segment: for worktrees, render "repo > wt-folder [>] branch [. sub/path]"
+# For non-worktrees or non-"worktree" style, fall back to previous logic.
 $workdirSuffix = ""
+$wtSuffix      = ""   # extra worktree info appended after location name
+
 if ($CFG_SHOW_WORKDIR -and $cwd) {
     $rawDir  = $cwd
     $wdBase  = Split-Path $rawDir -Leaf
 
-    # ~-relative form — match bash behavior, normalize to forward slashes so
-    # the $HOME prefix match is insensitive to slash direction.
+    # ~-relative form — normalize slashes for HOME-prefix match
     $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
     $rawFwd  = $rawDir  -replace '\\', '/'
     $homeFwd = if ($homeDir) { $homeDir -replace '\\', '/' } else { '' }
@@ -294,15 +342,39 @@ if ($CFG_SHOW_WORKDIR -and $cwd) {
         $relDir = '~' + $rawFwd.Substring($homeFwd.Length)
     }
 
-    switch ($CFG_WORKDIR_STYLE) {
-        "full"     { $workdirSuffix = ($rawDir -replace '\\', '/') }
-        "relative" { $workdirSuffix = $relDir }
-        "basename" { $workdirSuffix = $wdBase }
-        default {
-            # "worktree": show basename only when it differs from the location name
+    if ($CFG_WORKDIR_STYLE -eq 'worktree' -or $CFG_WORKDIR_STYLE -eq '') {
+        if ($gitIsWorktree -and $gitWtToplevel) {
+            # worktree-folder = basename of --show-toplevel (NOT cwd leaf)
+            $wtFolder = Split-Path $gitWtToplevel -Leaf
+            # sub/path = cwd relative to worktree root — shown only when below root
+            $wtToplevelFwd = $gitWtToplevel -replace '\\','/'
+            $cwdFwd        = $rawDir        -replace '\\','/'
+            $subPath = ""
+            if ($cwdFwd.Length -gt ($wtToplevelFwd.Length + 1) -and
+                $cwdFwd.StartsWith($wtToplevelFwd, [StringComparison]::OrdinalIgnoreCase)) {
+                $subPath = $cwdFwd.Substring($wtToplevelFwd.Length + 1)
+            }
+            # Build the worktree suffix string (will be assembled in line1Parts)
+            # Format: "> wt-folder  branch [. sub/path]"
+            # Using ASCII ">" as per statusline constraint (pipe through Git Bash)
+            $wtSuffix = " > ${wtFolder}"
+            if ($gitWtBranch) {
+                $wtSuffix += "  ${gitWtBranch}"
+            }
+            if ($subPath) {
+                $wtSuffix += "  . ${subPath}"
+            }
+        } else {
+            # Non-worktree: show basename when it differs from location name (previous logic)
             if ($locationName -and $wdBase -and $wdBase -ne $locationName) {
                 $workdirSuffix = $wdBase
             }
+        }
+    } else {
+        switch ($CFG_WORKDIR_STYLE) {
+            "full"     { $workdirSuffix = ($rawDir -replace '\\', '/') }
+            "relative" { $workdirSuffix = $relDir }
+            "basename" { $workdirSuffix = $wdBase }
         }
     }
 
@@ -310,6 +382,10 @@ if ($CFG_SHOW_WORKDIR -and $cwd) {
     if ($workdirSuffix -and $workdirSuffix.Length -gt $CFG_WORKDIR_MAX_LEN) {
         $keep = [Math]::Max(1, $CFG_WORKDIR_MAX_LEN - 1)
         $workdirSuffix = [char]0x2026 + $workdirSuffix.Substring($workdirSuffix.Length - $keep)
+    }
+    if ($wtSuffix -and $wtSuffix.Length -gt ($CFG_WORKDIR_MAX_LEN + 20)) {
+        $keep = [Math]::Max(1, $CFG_WORKDIR_MAX_LEN + 19)
+        $wtSuffix = [char]0x2026 + $wtSuffix.Substring($wtSuffix.Length - $keep)
     }
 }
 
@@ -319,12 +395,41 @@ if ($locationName) {
     if ($workdirSuffix) {
         $loc += "${DIM} $([char]0x25B8) ${workdirSuffix}${RESET}"
     }
+    if ($wtSuffix) {
+        # worktree extra: dim separator glyph, then worktree-folder in normal + branch in magenta
+        # Split wtSuffix at double-space boundary to colorize parts
+        $wtParts = $wtSuffix -split '  ', 3
+        # Part 0: " > wt-folder", Part 1: branch, Part 2: ". sub/path"
+        $wtFolder = if ($wtParts.Count -ge 1) { $wtParts[0] } else { "" }
+        $wtBr     = if ($wtParts.Count -ge 2) { $wtParts[1] } else { "" }
+        $wtSub    = if ($wtParts.Count -ge 3) { $wtParts[2] } else { "" }
+        $loc += "${DIM}${wtFolder}${RESET}"
+        if ($wtBr)  { $loc += "  ${MAGENTA}${wtBr}${RESET}" }
+        if ($wtSub) { $loc += "  ${DIM}${wtSub}${RESET}" }
+    }
     $line1Parts += $loc
 } elseif ($workdirSuffix) {
     $line1Parts += "${DIM}${workdirSuffix}${RESET}"
 }
 $line1Parts += "${BOLD}${CYAN}[$model]${RESET}"
-if ($gitStr) { $line1Parts += $gitStr }
+# In worktree mode, branch is already shown in the wt suffix — skip gitStr branch on line 1
+# to avoid duplication. Still show change indicators.
+if ($gitStr) {
+    if ($gitIsWorktree -and $wtSuffix) {
+        # Strip branch from gitStr (keep only the change indicators after a space)
+        $changeOnly = ""
+        if ($gitStaged -gt 0 -or $gitModified -gt 0 -or $gitUntracked -gt 0) {
+            $indicators2 = @()
+            if ($gitStaged -gt 0)    { $indicators2 += "${GREEN}+$gitStaged${RESET}" }
+            if ($gitModified -gt 0)  { $indicators2 += "${YELLOW}~$gitModified${RESET}" }
+            if ($gitUntracked -gt 0) { $indicators2 += "${RED}?$gitUntracked${RESET}" }
+            $changeOnly = $indicators2 -join " "
+        }
+        if ($changeOnly) { $line1Parts += $changeOnly }
+    } else {
+        $line1Parts += $gitStr
+    }
+}
 $line1Parts += "${barColor}[${bar}]${RESET} ${barColor}${pct}%${RESET}/${ctxLabel}"
 if ($costStr) { $line1Parts += $costStr }
 
@@ -476,11 +581,14 @@ if ($env:BRIF_SESSION_ID) {
         $currentBranch = if ($gitBranch) { $gitBranch } else { "" }
 
         $metrics = @{
-            context_pct = $pct
-            cost_usd = $cost
-            duration_ms = $durationMs
-            project_dir = $projDir
-            branch = $currentBranch
+            context_pct   = $pct
+            cost_usd      = $cost
+            duration_ms   = $durationMs
+            project_dir   = $projDir
+            branch        = $currentBranch
+            is_worktree   = $gitIsWorktree
+            main_repo_root = $gitMainRoot
+            wt_branch     = $gitWtBranch
         } | ConvertTo-Json -Compress
 
         $tmpFile = "$metricsDir\metrics.json.tmp"

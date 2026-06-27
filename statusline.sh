@@ -193,8 +193,32 @@ get_git_info() {
 
   local branch staged modified untracked
   local repo_root repo_name
-  repo_root="$(git -C "$work_dir" rev-parse --show-toplevel 2>/dev/null)"
-  repo_name="$(basename "$repo_root" 2>/dev/null)"
+  local git_dir common_dir is_wt main_repo_root wt_toplevel
+
+  git_dir="$(git -C "$work_dir" rev-parse --git-dir 2>/dev/null)"
+  common_dir="$(git -C "$work_dir" rev-parse --git-common-dir 2>/dev/null)"
+
+  # is_worktree: git-dir and common-dir differ
+  is_wt=0
+  main_repo_root=""
+  wt_toplevel=""
+  if [[ -n "$git_dir" && -n "$common_dir" && "$git_dir" != "$common_dir" ]]; then
+    is_wt=1
+    # main_repo_root = parent of common_dir when it ends in .git
+    if [[ "$common_dir" == */.git || "$common_dir" == */.git/ ]]; then
+      main_repo_root="$(dirname "$common_dir")"
+    else
+      main_repo_root="$common_dir"
+    fi
+  fi
+
+  wt_toplevel="$(git -C "$work_dir" rev-parse --show-toplevel 2>/dev/null)"
+  if [[ $is_wt -eq 1 && -n "$main_repo_root" ]]; then
+    repo_name="$(basename "$main_repo_root" 2>/dev/null)"
+  else
+    repo_name="$(basename "$wt_toplevel" 2>/dev/null)"
+  fi
+
   branch="$(git -C "$work_dir" branch --show-current 2>/dev/null)"
   if [[ -z "$branch" ]]; then
     # Detached HEAD: fall back to short commit SHA
@@ -206,7 +230,11 @@ get_git_info() {
   modified="$(git -C "$work_dir" diff --numstat 2>/dev/null | wc -l | tr -d ' ')"
   untracked="$(git -C "$work_dir" ls-files --others --exclude-standard 2>/dev/null | wc -l | tr -d ' ')"
 
-  local result="${repo_name}|${branch}|${staged}|${modified}|${untracked}"
+  # v2 cache format — strip pipe chars from paths for safe field split
+  local main_root_safe wt_top_safe
+  main_root_safe="${main_repo_root//|/}"
+  wt_top_safe="${wt_toplevel//|/}"
+  local result="v2|${repo_name}|${branch}|${staged}|${modified}|${untracked}|${is_wt}|${main_root_safe}|${wt_top_safe}|${branch}"
   printf '%s' "$result" > "$cache_file"
   printf '%s' "$result"
 }
@@ -357,12 +385,26 @@ if [[ "$CFG_SHOW_GIT" == true ]]; then
 fi
 
 # Location name: repo name if in git, else cwd basename.
-# git_raw_line1 is a 5-field string; we only need field 1 (repo name) here.
-# Branch, staged, modified, untracked are re-parsed for line 2 below.
+# Parse v2 cache or fall back to v1 (5-field).
 location_name=""
+git_is_wt=0
+git_main_root=""
+git_wt_toplevel=""
+git_wt_branch=""
 if [[ -n "$git_raw_line1" ]]; then
-  IFS='|' read -r _repo_tmp _rest <<< "$git_raw_line1"
-  location_name="$_repo_tmp"
+  _first_field="${git_raw_line1%%|*}"
+  if [[ "$_first_field" == "v2" ]]; then
+    # v2|repo|branch|staged|modified|untracked|is_wt|main_root|wt_toplevel|wt_branch
+    IFS='|' read -r _v2 _repo_tmp _branch_tmp _staged_tmp _modified_tmp _untracked_tmp _is_wt_tmp _main_root_tmp _wt_top_tmp _wt_branch_tmp <<< "$git_raw_line1"
+    location_name="$_repo_tmp"
+    git_is_wt="$_is_wt_tmp"
+    git_main_root="$_main_root_tmp"
+    git_wt_toplevel="$_wt_top_tmp"
+    git_wt_branch="$_wt_branch_tmp"
+  else
+    IFS='|' read -r _repo_tmp _rest <<< "$git_raw_line1"
+    location_name="$_repo_tmp"
+  fi
 fi
 if [[ -z "$location_name" && -n "$display_dir" ]]; then
   location_name="$(basename "$display_dir" 2>/dev/null)"
@@ -373,8 +415,8 @@ fi
 # Disambiguates multiple git worktrees of the same repo (which share repo_name).
 # ---------------------------------------------------------------------------
 workdir_suffix=""
+wt_suffix=""  # extra worktree info: "> wt-folder  branch [. sub/path]"
 if [[ "$CFG_SHOW_WORKDIR" == true && -n "$display_dir" ]]; then
-  # Resolve raw absolute path (display_dir has already been ~-shortened)
   raw_dir="${work_dir:-${project_dir:-$cwd}}"
   wd_base="$(basename "$raw_dir" 2>/dev/null)"
 
@@ -389,14 +431,32 @@ if [[ "$CFG_SHOW_WORKDIR" == true && -n "$display_dir" ]]; then
       workdir_suffix="$wd_base"
       ;;
     worktree|*)
-      # Show basename only when it differs from repo name
-      if [[ -n "$location_name" && "$wd_base" != "$location_name" ]]; then
-        workdir_suffix="$wd_base"
+      if [[ "$git_is_wt" == "1" && -n "$git_wt_toplevel" ]]; then
+        # worktree-folder = basename of --show-toplevel (NOT cwd leaf)
+        wt_folder="$(basename "$git_wt_toplevel" 2>/dev/null)"
+        # sub/path = cwd relative to worktree root, shown only when below root
+        sub_path=""
+        if [[ "${#raw_dir}" -gt "${#git_wt_toplevel}" && "${raw_dir#$git_wt_toplevel/}" != "$raw_dir" ]]; then
+          sub_path="${raw_dir#$git_wt_toplevel/}"
+        fi
+        # Build wt_suffix — ASCII ">" as separator (bash pipe is safe for Unicode but keep consistent)
+        wt_suffix=" > ${wt_folder}"
+        if [[ -n "$git_wt_branch" ]]; then
+          wt_suffix+="  ${git_wt_branch}"
+        fi
+        if [[ -n "$sub_path" ]]; then
+          wt_suffix+="  . ${sub_path}"
+        fi
+      else
+        # Non-worktree: show basename when it differs from location name
+        if [[ -n "$location_name" && "$wd_base" != "$location_name" ]]; then
+          workdir_suffix="$wd_base"
+        fi
       fi
       ;;
   esac
 
-  # Left-truncate (preserve worktree-specific tail) if longer than max
+  # Left-truncate workdir_suffix (non-worktree path)
   if [[ -n "$workdir_suffix" ]] && (( ${#workdir_suffix} > CFG_WORKDIR_MAX_LEN )); then
     keep=$(( CFG_WORKDIR_MAX_LEN - 1 ))
     (( keep < 1 )) && keep=1
@@ -414,13 +474,24 @@ if [[ -n "$location_name" ]]; then
   line1="${C_BOLD}${location_name}${C_RESET}"
 fi
 
-# Workdir suffix (dim, separator glyph between repo and path)
+# Workdir suffix (dim, separator glyph between repo and path — non-worktree)
 if [[ -n "$workdir_suffix" ]]; then
   if [[ -n "$line1" ]]; then
     line1+="${C_DIM} ▸ ${workdir_suffix}${C_RESET}"
   else
     line1+="${C_DIM}${workdir_suffix}${C_RESET}"
   fi
+fi
+
+# Worktree suffix: "repo > wt-folder  branch [. sub/path]"
+# Split on double-space to apply per-segment color
+if [[ -n "$wt_suffix" ]]; then
+  # wt_suffix format: " > wt-folder  branch  . sub/path"
+  # Split into parts delimited by double-space
+  IFS=$'\x01' read -r _wt_folder _wt_br _wt_sub <<< "$(printf '%s' "$wt_suffix" | sed 's/  /\x01/g')"
+  line1+="${C_DIM}${_wt_folder}${C_RESET}"
+  [[ -n "$_wt_br"  ]] && line1+="  ${C_MAGENTA}${_wt_br}${C_RESET}"
+  [[ -n "$_wt_sub" ]] && line1+="  ${C_DIM}${_wt_sub}${C_RESET}"
 fi
 
 # Model name in cyan
@@ -465,7 +536,12 @@ if [[ "$CFG_SHOW_GIT" == true ]]; then
   git_raw="$git_raw_line1"
 
   if [[ -n "$git_raw" ]]; then
-    IFS='|' read -r repo_name branch staged modified untracked <<< "$git_raw"
+    _l2_first="${git_raw%%|*}"
+    if [[ "$_l2_first" == "v2" ]]; then
+      IFS='|' read -r _v2 repo_name branch staged modified untracked _is_wt _main_root _wt_top _wt_br <<< "$git_raw"
+    else
+      IFS='|' read -r repo_name branch staged modified untracked <<< "$git_raw"
+    fi
 
     # Repo name moved to line 1 prefix; line 2 shows only branch + change counts
     line2="${CFG_PREFIX}${C_MAGENTA}${C_BOLD}${branch}${C_RESET}"
@@ -705,14 +781,23 @@ if [[ -n "${BRIF_SESSION_ID:-}" ]]; then
     # Reuse branch from git_raw_line1 (pre-fetched for line 1) — avoids a fork
     current_branch=""
     if [[ -n "$git_raw_line1" ]]; then
-      IFS='|' read -r _ current_branch _ _ _ <<< "$git_raw_line1"
+      _cb_first="${git_raw_line1%%|*}"
+      if [[ "$_cb_first" == "v2" ]]; then
+        IFS='|' read -r _v2 _ current_branch _ _ _ _ _ _ _ <<< "$git_raw_line1"
+      else
+        IFS='|' read -r _ current_branch _ _ _ <<< "$git_raw_line1"
+      fi
     fi
     jq -n --argjson ctx "$used_pct_int" \
            --argjson cost "$total_cost" \
            --argjson dur "$total_duration" \
            --arg proj "$display_dir" \
            --arg br "$current_branch" \
-      '{context_pct: $ctx, cost_usd: $cost, duration_ms: $dur, project_dir: $proj, branch: $br}' \
+           --argjson is_wt "${git_is_wt:-0}" \
+           --arg main_root "${git_main_root:-}" \
+           --arg wt_branch "${git_wt_branch:-}" \
+      '{context_pct: $ctx, cost_usd: $cost, duration_ms: $dur, project_dir: $proj, branch: $br,
+        is_worktree: ($is_wt == 1), main_repo_root: $main_root, wt_branch: $wt_branch}' \
       > "$metrics_dir/metrics.json.tmp" && mv "$metrics_dir/metrics.json.tmp" "$metrics_dir/metrics.json"
   fi
 fi
