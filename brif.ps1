@@ -1,11 +1,29 @@
 #!/usr/bin/env pwsh
 # brif.ps1 — launcher for Claude Code with mission context top pane (Windows / psmux)
-# Usage: .\brif.ps1 [claude-code-args...]
-#        .\brif.ps1 --resume <session-id> [claude-code-args...]
+#
+# Usage (positional, back-compat):
+#   .\brif.ps1 [claude-code-args...]
+#   .\brif.ps1 --resume <session-id> [claude-code-args...]
+#
+# Usage (launch contract — used by the tmax `ws` launcher):
+#   .\brif.ps1 -Path <abs-project-path> -SessionName <safe-name> [-ClaudeArgs <args...>]
+#     -Path        absolute project directory; psmux session starts here (-c start-dir)
+#     -SessionName deterministic psmux session name computed by ws (e.g.
+#                  tmax_<leaf>_<8hex>). If a session with this name already
+#                  exists, attach to it; otherwise start a new one.
+#     -ClaudeArgs  args forwarded verbatim to `claude`
 #
 # Requires: psmux (winget install marlocarlo.psmux), Claude Code CLI
 # Mirrors the Unix `brif` bash launcher for native Windows PowerShell + psmux.
 # Run from PowerShell — psmux must be on PATH.
+
+param(
+    [string]$Path,
+    [string]$SessionName,
+    [string[]]$ClaudeArgs,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$RemainingArgs
+)
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'Stop'
@@ -36,27 +54,52 @@ if (-not (Test-Path $PANE_SCRIPT)) {
     exit 1
 }
 
-# --- Session ID ---
-# Default: brif-<8 hex chars> derived from current time hash
-$timestamp  = [DateTimeOffset]::Now.ToUnixTimeMilliseconds().ToString()
-$hashBytes  = [System.Security.Cryptography.SHA256]::Create().ComputeHash(
-                  [System.Text.Encoding]::UTF8.GetBytes($timestamp))
-$SESSION_ID = "brif-" + (($hashBytes | ForEach-Object { $_.ToString("x2") }) -join "").Substring(0, 8)
+# --- Mode detection: launch contract vs legacy positional ---
+# Contract mode is active when -SessionName is supplied (by the ws launcher).
+$ContractMode = [bool]$SessionName
 
-# Honor --resume <id>: sanitize to [a-zA-Z0-9._-], max 8 chars
+# --- Build claude args + session identity per mode ---
 $claudeArgs = @()
-$i = 0
-while ($i -lt $args.Count) {
-    if ($args[$i] -eq "--resume" -and ($i + 1) -lt $args.Count) {
-        $rawId      = $args[$i + 1]
-        $cleanId    = ($rawId -replace '[^a-zA-Z0-9._\-]', '')
-        $cleanId    = $cleanId.Substring(0, [Math]::Min(8, $cleanId.Length))
-        $SESSION_ID = "brif-$cleanId"
-        $i += 2
-    } else {
-        $claudeArgs += $args[$i]
-        $i++
+
+if ($ContractMode) {
+    # ws passes a deterministic psmux session name; mission session ID derives from it.
+    # Sanitize SessionName for psmux target safety (psmux/tmux session names cannot
+    # contain ':' or '.'; keep to a conservative safe set).
+    $TMUX_SESSION = ($SessionName -replace '[^a-zA-Z0-9._\-]', '_')
+
+    # Mission session-dir ID: reuse the psmux name (already unique per path via ws hash),
+    # capped/sanitized to the brif dir-key charset.
+    $SESSION_ID = ($SessionName -replace '[^a-zA-Z0-9._\-]', '_')
+
+    # ClaudeArgs (named) take precedence; fall back to any remaining positional args.
+    if ($ClaudeArgs)    { $claudeArgs += $ClaudeArgs }
+    if ($RemainingArgs) { $claudeArgs += $RemainingArgs }
+} else {
+    # --- Legacy positional mode ---
+    # Default mission ID: brif-<8 hex chars> derived from current time hash
+    $timestamp  = [DateTimeOffset]::Now.ToUnixTimeMilliseconds().ToString()
+    $hashBytes  = [System.Security.Cryptography.SHA256]::Create().ComputeHash(
+                      [System.Text.Encoding]::UTF8.GetBytes($timestamp))
+    $SESSION_ID = "brif-" + (($hashBytes | ForEach-Object { $_.ToString("x2") }) -join "").Substring(0, 8)
+
+    # Honor --resume <id>: sanitize to [a-zA-Z0-9._-], max 8 chars
+    $posArgs = @($RemainingArgs)
+    $i = 0
+    while ($i -lt $posArgs.Count) {
+        if ($posArgs[$i] -eq "--resume" -and ($i + 1) -lt $posArgs.Count) {
+            $rawId      = $posArgs[$i + 1]
+            $cleanId    = ($rawId -replace '[^a-zA-Z0-9._\-]', '')
+            $cleanId    = $cleanId.Substring(0, [Math]::Min(8, $cleanId.Length))
+            $SESSION_ID = "brif-$cleanId"
+            $i += 2
+        } else {
+            $claudeArgs += $posArgs[$i]
+            $i++
+        }
     }
+
+    # psmux session name (unique per PID) — legacy behavior
+    $TMUX_SESSION = "brif-$PID"
 }
 
 # --- Create session directory ---
@@ -97,8 +140,14 @@ if (-not (Test-Path $MISSION_FILE)) {
 # --- Export session ID for hooks ---
 $env:BRIF_SESSION_ID = $SESSION_ID
 
-# --- Build psmux session name (unique per PID) ---
-$TMUX_SESSION = "brif-$PID"
+# --- Attach-vs-start: if the psmux session already exists, just attach ---
+# Identity is the session NAME (computed deterministically by ws from the path),
+# checked via has-session exit code — never by parsing `psmux ls` text.
+& psmux has-session -t $TMUX_SESSION 2>$null
+if ($LASTEXITCODE -eq 0) {
+    & psmux attach-session -t $TMUX_SESSION
+    exit $LASTEXITCODE
+}
 
 # --- Terminal size ---
 $cols  = $Host.UI.RawUI.WindowSize.Width
@@ -106,8 +155,12 @@ $lines = $Host.UI.RawUI.WindowSize.Height
 
 # --- Launch psmux ---
 
-# 1. Create detached session
-& psmux new-session -d -s $TMUX_SESSION -x $cols -y $lines
+# 1. Create detached session (start in -Path when supplied via the launch contract)
+if ($ContractMode -and $Path) {
+    & psmux new-session -d -s $TMUX_SESSION -x $cols -y $lines -c $Path
+} else {
+    & psmux new-session -d -s $TMUX_SESSION -x $cols -y $lines
+}
 
 # 2. Pass SESSION_ID via environment (injection-safe — no shell-quoting risk)
 & psmux set-environment -t $TMUX_SESSION BRIF_SESSION_ID $SESSION_ID
