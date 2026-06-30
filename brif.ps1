@@ -154,33 +154,52 @@ $cols  = $Host.UI.RawUI.WindowSize.Width
 $lines = $Host.UI.RawUI.WindowSize.Height
 
 # --- Launch psmux ---
+# Layout: brif renderer on TOP (7 lines), Claude Code in the MAIN pane below.
+#
+# psmux quirks we work around:
+#  - split-window always places the NEW pane BELOW (the `-b` "before" flag does
+#    not move it above for vertical splits). So the ORIGINAL session pane is the
+#    top pane; we run the brif renderer there and split a new pane below for
+#    Claude, sized to take the remaining height.
+#  - Pane numeric indices are unreliable; we capture stable pane IDs (%N) via
+#    `-P -F "#{pane_id}"` and target those, never ".0"/".1".
 
-# 1. Create detached session (start in -Path when supplied via the launch contract)
+$BRIF_HEIGHT = 7
+$mainHeight  = [Math]::Max(5, $lines - $BRIF_HEIGHT)
+
+# 1. Create detached session. The original pane becomes the BRIF (top) pane.
+#    (start in -Path when supplied via the launch contract)
 if ($ContractMode -and $Path) {
-    & psmux new-session -d -s $TMUX_SESSION -x $cols -y $lines -c $Path
+    $BRIF_PANE = (& psmux new-session -d -s $TMUX_SESSION -x $cols -y $lines -c $Path -P -F "#{pane_id}").Trim()
 } else {
-    & psmux new-session -d -s $TMUX_SESSION -x $cols -y $lines
+    $BRIF_PANE = (& psmux new-session -d -s $TMUX_SESSION -x $cols -y $lines -P -F "#{pane_id}").Trim()
 }
 
 # 2. Pass SESSION_ID via environment (injection-safe — no shell-quoting risk)
 & psmux set-environment -t $TMUX_SESSION BRIF_SESSION_ID $SESSION_ID
 
-# 3. Top pane (7 lines tall): brif-pane.ps1 renderer
-#    -b = insert before (above), -v = vertical split, -l 7 = 7-line height
-$paneCmd = "pwsh -NoProfile -File `"$PANE_SCRIPT`" `"$SESSION_ID`""
-& psmux split-window -t $TMUX_SESSION -v -l 7 -b $paneCmd
+# 3. Split a new pane BELOW the brif pane for Claude; size it to the remaining
+#    height so brif stays a 7-line strip on top. Capture the main pane id.
+$MAIN_PANE = (& psmux split-window -t $BRIF_PANE -v -l $mainHeight -P -F "#{pane_id}").Trim()
 
-# 4. Bottom pane (.1): Claude Code
-#    Build command string — single-quote each arg for PowerShell safety
+# 4. Brif renderer runs in the ORIGINAL (top) pane.
+$paneCmd = "pwsh -NoProfile -File `"$PANE_SCRIPT`" `"$SESSION_ID`""
+& psmux send-keys -t $BRIF_PANE $paneCmd Enter
+
+# 5. Main pane: Claude Code. Target the captured MAIN pane id.
+#    Build command string — single-quote each arg for PowerShell safety.
 $claudeCmd = if ($claudeArgs.Count -gt 0) {
     "claude " + (($claudeArgs | ForEach-Object { "'$($_ -replace "'", "''"  )'" }) -join " ")
 } else {
     "claude"
 }
-& psmux send-keys -t "${TMUX_SESSION}.1" $claudeCmd Enter
+& psmux send-keys -t $MAIN_PANE $claudeCmd Enter
 
-# 5. Set destroy-unattached (best-effort — option may not be supported by all psmux versions)
+# 6. Focus the main pane so the user lands in Claude, not the brif renderer.
+& psmux select-pane -t $MAIN_PANE 2>$null
+
+# 7. Set destroy-unattached (best-effort — may not be supported by all psmux versions)
 & psmux set-option -t $TMUX_SESSION destroy-unattached on 2>$null
 
-# 6. Attach — when Claude exits, bottom pane closes; session auto-destroys
+# 8. Attach — when Claude exits, main pane closes; session auto-destroys.
 & psmux attach-session -t $TMUX_SESSION
